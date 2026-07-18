@@ -43,9 +43,21 @@ async function latestPreviousSnapshotPath(storage, dateKey) {
   return successful.sort().at(-1) ?? null;
 }
 
-function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, storageType }) {
+async function countSuccessfulSnapshotsBefore(storage, dateKey) {
+  const files = await storage.listJson(DATA_PATHS.snapshotsDir);
+  let count = 0;
+  for (const file of files) {
+    if (pathDateKey(file) >= dateKey) continue;
+    const snapshot = await storage.readJson(file, null);
+    if (snapshot?.status === "success") count += 1;
+  }
+  return count;
+}
+
+function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, storageType, observationNumber }) {
   return {
     storage: storageType,
+    lastObservationNumber: observationNumber,
     currentSnapshot: {
       date: dateKey,
       path: snapshotPath(dateKey),
@@ -55,6 +67,7 @@ function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, 
       source: snapshot.source,
       status: snapshot.status,
       retryCount,
+      observationNumber,
     },
     previousSnapshot: previous
       ? {
@@ -116,6 +129,7 @@ export async function createScheduledSnapshot({
   try {
     const previousPath = await latestPreviousSnapshotPath(storage, dateKey);
     const previous = previousPath ? await storage.readJson(previousPath, null) : null;
+    const observationNumber = (await countSuccessfulSnapshotsBefore(storage, dateKey)) + 1;
     const captured = await collectBankrTop10();
     const snapshot = {
       scheduledFor,
@@ -141,6 +155,7 @@ export async function createScheduledSnapshot({
       previous,
       retryCount,
       storageType: storage.type,
+      observationNumber,
     });
 
     await storage.commitJsonFiles(

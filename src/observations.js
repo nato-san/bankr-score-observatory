@@ -49,8 +49,9 @@ export function buildObservation({ oldSnapshot, newSnapshot, diff, metadata }) {
   const summary = summarizeDiff(diff);
   const newCapturedAt = newestTimestamp(newSnapshot);
   const oldCapturedAt = newestTimestamp(oldSnapshot);
+  const fallbackObservationNumber = metadata?.currentSnapshot ? 1 : 0;
   return {
-    observationNumber: metadata?.lastObservationNumber ?? 0,
+    observationNumber: metadata?.lastObservationNumber ?? fallbackObservationNumber,
     snapshotOldId: metadata?.previousSnapshot?.id ?? oldCapturedAt ?? "snapshot-old",
     snapshotNewId: metadata?.currentSnapshot?.id ?? newCapturedAt ?? "snapshot-new",
     createdAt: diff.generatedAt || newCapturedAt || new Date().toISOString(),
