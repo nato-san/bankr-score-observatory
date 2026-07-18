@@ -1,0 +1,14 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+.npm-cache/
+node_modules/
+dist/
+outputs/
+work/pw-browsers/
+work/*summary*.json
+work/*collection*.json
+work/bankr-leaderboard-iab-summary.json
+work/snapshot-live-collection-summary.json
+work/snapshot-new-collection-summary.json

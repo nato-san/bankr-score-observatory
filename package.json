@@ -1,0 +1,23 @@
+{
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:app": "node work/dev-server.mjs --host 0.0.0.0 --port 5175",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "observe": "node work/observe-bankr.mjs",
+    "scheduled:snapshot": "node work/scheduled-bankr-snapshot.mjs",
+    "scheduled:github": "node work/scheduled-bankr-snapshot.mjs --require-github",
+    "github:check": "node work/check-github-storage.mjs",
+    "diff": "node work/bankr-diff-snapshots.mjs outputs/snapshot-old.json outputs/snapshot-new.json outputs/bankr-leaderboard-diff-test.json"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "lucide-react": "latest",
+    "twitter-text": "latest"
+  },
+  "devDependencies": {}
+}
