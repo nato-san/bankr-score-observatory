@@ -1,4 +1,5 @@
 import { collectBankrTop10 } from "../work/bankr-live.mjs";
+import { readResearchState } from "../work/scheduled-bankr-snapshot.mjs";
 
 export const config = {
   maxDuration: 60,
@@ -13,14 +14,15 @@ export default async function handler(request, response) {
 
   try {
     const snapshot = await collectBankrTop10();
+    const researchState = await readResearchState({ requireGitHub: true });
     response.status(200).json({
       ok: true,
       state: {
-        oldSnapshot: [],
-        newSnapshot: [],
-        diff: null,
+        oldSnapshot: researchState.oldSnapshot,
+        newSnapshot: researchState.newSnapshot,
+        diff: researchState.diff,
         metadata: null,
-        scheduledState: null,
+        scheduledState: researchState.scheduledState,
         manualCurrent: {
           capturedAt: snapshot.capturedAt,
           source: snapshot.source,
@@ -30,7 +32,7 @@ export default async function handler(request, response) {
           failedProfiles: snapshot.failedProfiles,
           status: "success",
         },
-        storage: "transient",
+        storage: researchState.storage,
       },
     });
   } catch (error) {
