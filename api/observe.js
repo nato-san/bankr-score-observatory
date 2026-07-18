@@ -27,9 +27,16 @@ export default async function handler(request, response) {
           capturedAt: snapshot.capturedAt,
           source: snapshot.source,
           leaderboardSource: snapshot.leaderboardSource,
-          leaderboard: snapshot.leaderboard,
-          profiles: snapshot.profiles,
+          leaderboardVersion: snapshot.leaderboardVersion,
+          totalUsersCaptured: snapshot.totalUsersCaptured,
+          leaderboard: {
+            top50: snapshot.top50,
+          },
+          profiles: {
+            top10: snapshot.profiles,
+          },
           failedProfiles: snapshot.failedProfiles,
+          validation: snapshot.validation,
           status: "success",
         },
         storage: researchState.storage,

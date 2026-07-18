@@ -147,6 +147,7 @@ function App() {
             <StatusCard label="Manual Current" value={dataState?.manualCurrent?.capturedAt ? "確認済み" : "未確認"} />
           </div>
           <OfficialSnapshotCard snapshot={formalSnapshot} />
+          <InvalidSnapshotCard failedAttempt={dataState?.scheduledState?.lastFailedAttempt} />
           {manualMessage && <div className="success-card">{manualMessage}</div>}
           {loadError && <div className="error-card">{loadError}</div>}
           <button className="primary-button" onClick={startObservation} disabled={running}>
@@ -174,6 +175,8 @@ function App() {
             observation={observation}
             summary={summary}
             diff={dataState.diff}
+            top50={dataState.newSnapshot ?? []}
+            top10Profiles={dataState.newTop10Profiles ?? []}
             onCreatePosts={openPosts}
           />
         ) : (
@@ -212,11 +215,31 @@ function OfficialSnapshotCard({ snapshot }) {
       <p><span>予定時刻</span>{formatJst(snapshot?.scheduledFor)}</p>
       <p><span>取得時刻</span>{formatJst(snapshot?.capturedAt)}</p>
       <p><span>状態</span>{snapshot?.status === "success" ? "成功" : "未取得"}</p>
+      {snapshot?.leaderboardVersion && <p><span>Leaderboard</span>{snapshot.leaderboardVersion}</p>}
+      {snapshot?.totalUsersCaptured != null && <p><span>取得件数</span>{snapshot.totalUsersCaptured}</p>}
     </section>
   );
 }
 
-function ChangesScreen({ observation, summary, diff, onCreatePosts }) {
+function InvalidSnapshotCard({ failedAttempt }) {
+  if (!failedAttempt) return null;
+  return (
+    <section className="error-card">
+      <strong>直近の取得失敗</strong>
+      <p>{formatJst(failedAttempt.capturedAt)}</p>
+      <p>{failedAttempt.error}</p>
+      {failedAttempt.validation?.errors?.length > 0 && (
+        <ul className="compact-list">
+          {failedAttempt.validation.errors.slice(0, 5).map((error) => (
+            <li key={error}>{error}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ChangesScreen({ observation, summary, diff, top50, top10Profiles, onCreatePosts }) {
   return (
     <section className="screen">
       <div className="section-head">
@@ -229,14 +252,14 @@ function ChangesScreen({ observation, summary, diff, onCreatePosts }) {
         <p><span>Source</span>{observation.source}</p>
       </div>
       <div className="metric-grid">
-        <Metric label="Rank Movers" value={summary.rankMovers.length} />
-        <Metric label="New Top 10" value={summary.newUsers.length} />
-        <Metric label="Exited Top 10" value={summary.exitedUsers.length} />
+        <Metric label="Top 50 Rank Movers" value={summary.rankMovers.length} />
+        <Metric label="Entered Top 50" value={summary.newUsers.length} />
+        <Metric label="Exited Top 50" value={summary.exitedUsers.length} />
         <Metric label="Overall Score" value={summary.overallChanges.length} />
-        <Metric label="Category Changes" value={summary.categoryChangeUserCount} />
+        <Metric label="Top 10 Profiles" value={top10Profiles.length} />
       </div>
 
-      <Card title="順位変動">
+      <Card title="TOP50内順位変動">
         {summary.rankMovers.length ? (
           summary.rankMovers.map((user) => <RankMover key={user.profileUrl} user={user} />)
         ) : (
@@ -245,14 +268,14 @@ function ChangesScreen({ observation, summary, diff, onCreatePosts }) {
       </Card>
 
       <div className="two-stack">
-        <Card title="New Top 10">
+        <Card title="Entered Top 50">
           {summary.newUsers.length ? (
             summary.newUsers.map((user) => <UserLine key={user.profileUrl} user={user} />)
           ) : (
             <EmptyLine text="新規ランクインなし" />
           )}
         </Card>
-        <Card title="Exited Top 10">
+        <Card title="Exited Top 50">
           {summary.exitedUsers.length ? (
             summary.exitedUsers.map((user) => <UserLine key={user.profileUrl} user={user} />)
           ) : (
@@ -261,24 +284,52 @@ function ChangesScreen({ observation, summary, diff, onCreatePosts }) {
         </Card>
       </div>
 
-      <Card title="カテゴリ変動">
-        {summary.categoryGroups.map((group) => (
-          <details key={group.field} className="category-detail" open={group.field === "LLM Gateway"}>
-            <summary>
-              <span>{group.field}</span>
-              <span>{group.users.length}</span>
-              <ChevronDown size={18} />
-            </summary>
-            {group.users.map((item) => (
-              <div className="change-line" key={`${group.field}-${item.profileUrl}`}>
-                <strong>{item.username}</strong>
-                <span>
-                  {formatValue(item.change.old)} → {formatValue(item.change.new)}
-                </span>
+      <Card title="TOP50一覧">
+        {top50.length ? (
+          <div className="leaderboard-list">
+            {top50.map((user) => (
+              <div className="leaderboard-row" key={user.profileUrl || user.username}>
+                <span>{user.rank}</span>
+                <strong>{user.username}</strong>
+                <span>{formatValue(user.overallScore)}</span>
               </div>
             ))}
-          </details>
-        ))}
+          </div>
+        ) : (
+          <EmptyLine text="TOP50を確認できません" />
+        )}
+      </Card>
+
+      <Card title="TOP10詳細データ">
+        {top10Profiles.length ? (
+          top10Profiles.map((user) => <UserLine key={user.profileUrl} user={{ ...user, status: "existing", rank: { new: user.rank } }} />)
+        ) : (
+          <EmptyLine text="TOP10詳細データなし" />
+        )}
+      </Card>
+
+      <Card title="カテゴリ変動">
+        {summary.categoryGroups.length ? (
+          summary.categoryGroups.map((group) => (
+            <details key={group.field} className="category-detail" open={group.field === "LLM Gateway"}>
+              <summary>
+                <span>{group.field}</span>
+                <span>{group.users.length}</span>
+                <ChevronDown size={18} />
+              </summary>
+              {group.users.map((item) => (
+                <div className="change-line" key={`${group.field}-${item.profileUrl}`}>
+                  <strong>{item.username}</strong>
+                  <span>
+                    {formatValue(item.change.old)} → {formatValue(item.change.new)}
+                  </span>
+                </div>
+              ))}
+            </details>
+          ))
+        ) : (
+          <EmptyLine text="TOP50軽量データではカテゴリ変動を判定しません" />
+        )}
       </Card>
 
       <button className="primary-button sticky-action" onClick={onCreatePosts}>

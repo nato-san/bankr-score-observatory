@@ -16,9 +16,16 @@ try {
     capturedAt: snapshot.capturedAt,
     source: snapshot.source,
     leaderboardSource: snapshot.leaderboardSource,
-    leaderboard: snapshot.leaderboard,
-    profiles: snapshot.profiles,
+    leaderboardVersion: snapshot.leaderboardVersion,
+    totalUsersCaptured: snapshot.totalUsersCaptured,
+    leaderboard: {
+      top50: snapshot.top50,
+    },
+    profiles: {
+      top10: snapshot.profiles,
+    },
     failedProfiles: snapshot.failedProfiles,
+    validation: snapshot.validation,
     status: "success",
   };
   fs.writeFileSync(manualPath, `${JSON.stringify(manual, null, 2)}\n`);
@@ -28,12 +35,15 @@ try {
     source: snapshot.source,
     mode: "manual-current",
     fetchedUsers: snapshot.profiles.length,
+    totalUsersCaptured: snapshot.totalUsersCaptured,
     top10: snapshot.profiles.map(({ rank, username }) => ({ rank, username })),
+    top50Preview: snapshot.top50.slice(0, 5).map(({ rank, username }) => ({ rank, username })),
   }, null, 2)}\n`);
 
   console.log("Fetched at:", snapshot.capturedAt);
   console.log("Leaderboard source:", snapshot.leaderboardSource);
   console.log("Fetched users:", snapshot.profiles.length);
+  console.log("Top 50 lightweight users:", snapshot.totalUsersCaptured);
   console.log("Top 10 usernames:");
   for (const user of snapshot.profiles) console.log(`${user.rank}. ${user.username}`);
   console.log("Saved as manual current value. Formal research snapshot was not created.");

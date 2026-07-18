@@ -152,6 +152,7 @@ export function compareSnapshots({
   newUsers,
   oldSnapshot = "old",
   newSnapshot = "new",
+  scope = "top10",
 } = {}) {
   const oldIndex = indexUsers(oldUsers ?? [], "old");
   const newIndex = indexUsers(newUsers ?? [], "new");
@@ -159,6 +160,7 @@ export function compareSnapshots({
   const users = keys.map((key) => compareUsers(oldIndex.indexed.get(key), newIndex.indexed.get(key)));
   const identicalInputPaths = path.resolve(oldSnapshot) === path.resolve(newSnapshot);
   const summary = {
+    scope,
     totalUsers: users.length,
     existingUsers: users.filter((user) => user.status === "existing").length,
     newUsers: users.filter((user) => user.status === "new").length,
@@ -174,6 +176,7 @@ export function compareSnapshots({
     generatedAt: new Date().toISOString(),
     oldSnapshot,
     newSnapshot,
+    scope,
     summary,
     users,
   };

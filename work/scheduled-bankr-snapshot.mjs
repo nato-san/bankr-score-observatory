@@ -1,9 +1,10 @@
 import { fileURLToPath } from "node:url";
-import { collectBankrTop10 } from "./bankr-live.mjs";
+import { collectBankrTop10, LEADERBOARD_VERSION, TOP50_SIZE, validateTop50 } from "./bankr-live.mjs";
 import { compareSnapshots } from "./bankr-diff-core.mjs";
 import { createSnapshotStorage, DATA_PATHS } from "./github-storage.mjs";
 
 const TIMEZONE = "Asia/Tokyo";
+const BASELINE_COLLECTION_DAYS = Number(process.env.BASELINE_COLLECTION_DAYS ?? 30);
 
 function jstDateKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -38,9 +39,26 @@ async function latestPreviousSnapshotPath(storage, dateKey) {
   for (const file of files) {
     if (pathDateKey(file) >= dateKey) continue;
     const snapshot = await storage.readJson(file, null);
-    if (snapshot?.status === "success") successful.push(file);
+    if (isSuccessTop50Snapshot(snapshot)) successful.push(file);
   }
   return successful.sort().at(-1) ?? null;
+}
+
+function top50FromSnapshot(snapshot) {
+  return snapshot?.leaderboard?.top50 ?? snapshot?.leaderboard ?? snapshot?.profiles ?? [];
+}
+
+function top10ProfilesFromSnapshot(snapshot) {
+  return snapshot?.profiles?.top10 ?? snapshot?.profiles ?? [];
+}
+
+function isSuccessSnapshot(snapshot) {
+  return isSuccessTop50Snapshot(snapshot) || (snapshot?.status === "success" && Array.isArray(snapshot?.profiles) && snapshot.profiles.length === 10);
+}
+
+function isSuccessTop50Snapshot(snapshot) {
+  if (snapshot?.status !== "success") return false;
+  return Boolean(snapshot?.leaderboard?.top50 && validateTop50(snapshot.leaderboard.top50).ok);
 }
 
 async function countSuccessfulSnapshotsBefore(storage, dateKey) {
@@ -49,7 +67,7 @@ async function countSuccessfulSnapshotsBefore(storage, dateKey) {
   for (const file of files) {
     if (pathDateKey(file) >= dateKey) continue;
     const snapshot = await storage.readJson(file, null);
-    if (snapshot?.status === "success") count += 1;
+    if (isSuccessSnapshot(snapshot)) count += 1;
   }
   return count;
 }
@@ -57,6 +75,7 @@ async function countSuccessfulSnapshotsBefore(storage, dateKey) {
 function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, storageType, observationNumber }) {
   return {
     storage: storageType,
+    baselineCollectionDays: BASELINE_COLLECTION_DAYS,
     lastObservationNumber: observationNumber,
     currentSnapshot: {
       date: dateKey,
@@ -66,6 +85,10 @@ function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, 
       timezone: snapshot.timezone,
       source: snapshot.source,
       status: snapshot.status,
+      baselineCollectionDays: snapshot.baselineCollectionDays,
+      leaderboardVersion: snapshot.leaderboardVersion,
+      totalUsersCaptured: snapshot.totalUsersCaptured,
+      validation: snapshot.validation,
       retryCount,
       observationNumber,
     },
@@ -78,6 +101,10 @@ function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, 
           timezone: previous.timezone,
           source: previous.source,
           status: previous.status,
+          baselineCollectionDays: previous.baselineCollectionDays,
+          leaderboardVersion: previous.leaderboardVersion,
+          totalUsersCaptured: previous.totalUsersCaptured,
+          validation: previous.validation,
           retryCount: previous.retryCount,
         }
       : null,
@@ -96,6 +123,7 @@ async function recordFailedAttempt({ storage, dateKey, scheduledFor, retryCount,
     timezone: TIMEZONE,
     status: "failed",
     retryCount,
+    validation: error?.validation ?? null,
     error: error instanceof Error ? error.message : String(error),
   };
   await storage.commitJsonFiles(
@@ -131,22 +159,37 @@ export async function createScheduledSnapshot({
     const previous = previousPath ? await storage.readJson(previousPath, null) : null;
     const observationNumber = (await countSuccessfulSnapshotsBefore(storage, dateKey)) + 1;
     const captured = await collectBankrTop10();
+    const validation = captured.validation ?? validateTop50(captured.top50 ?? []);
+    if (!validation.ok) {
+      const error = new Error(`Snapshot Invalid: ${validation.errors.join(", ")}`);
+      error.validation = validation;
+      throw error;
+    }
     const snapshot = {
       scheduledFor,
       capturedAt: captured.capturedAt,
       timezone: TIMEZONE,
       source: captured.source,
       status: "success",
-      leaderboard: captured.leaderboard,
-      profiles: captured.profiles,
+      baselineCollectionDays: BASELINE_COLLECTION_DAYS,
+      leaderboardVersion: LEADERBOARD_VERSION,
+      totalUsersCaptured: TOP50_SIZE,
+      leaderboard: {
+        top50: captured.top50,
+      },
+      profiles: {
+        top10: captured.profiles,
+      },
       failedProfiles: captured.failedProfiles,
+      validation,
       retryCount,
     };
     const diff = compareSnapshots({
-      oldUsers: previous?.profiles ?? [],
-      newUsers: snapshot.profiles,
+      oldUsers: top50FromSnapshot(previous),
+      newUsers: snapshot.leaderboard.top50,
       oldSnapshot: previousPath ?? "none",
       newSnapshot: currentPath,
+      scope: "top50",
     });
     const state = snapshotState({
       dateKey,
@@ -195,8 +238,10 @@ export async function readResearchState({ requireGitHub = false } = {}) {
   return {
     storage: storage.type,
     scheduledState: state,
-    oldSnapshot: previousSnapshot?.profiles ?? [],
-    newSnapshot: currentSnapshot?.profiles ?? [],
+    oldSnapshot: top50FromSnapshot(previousSnapshot),
+    newSnapshot: top50FromSnapshot(currentSnapshot),
+    oldTop10Profiles: top10ProfilesFromSnapshot(previousSnapshot),
+    newTop10Profiles: top10ProfilesFromSnapshot(currentSnapshot),
     diff,
   };
 }

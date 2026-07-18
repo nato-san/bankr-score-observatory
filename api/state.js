@@ -7,6 +7,8 @@ export default async function handler(_request, response) {
     response.status(200).json({
       oldSnapshot: researchState.oldSnapshot,
       newSnapshot: researchState.newSnapshot,
+      oldTop10Profiles: researchState.oldTop10Profiles,
+      newTop10Profiles: researchState.newTop10Profiles,
       diff: researchState.diff,
       metadata: null,
       scheduledState: researchState.scheduledState,
