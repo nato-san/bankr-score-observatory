@@ -59,6 +59,9 @@ export function buildObservation({ oldSnapshot, newSnapshot, diff, metadata }) {
     previousSnapshotAt: metadata?.previousSnapshot?.capturedAt ?? oldCapturedAt,
     source: metadata?.currentSnapshot?.source ?? "Local snapshot",
     status: "draft",
+    profileDetailsAvailable: metadata?.currentSnapshot?.top10ProfilesCaptured == null
+      ? true
+      : metadata.currentSnapshot.top10ProfilesCaptured > 0,
     diff,
     summary,
   };

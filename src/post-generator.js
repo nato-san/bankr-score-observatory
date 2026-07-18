@@ -1,4 +1,5 @@
 import twitterText from "twitter-text";
+import { formatUsername } from "./display-formatters.js";
 
 const SAFE_LIMIT = 270;
 const HARD_LIMIT = 280;
@@ -43,7 +44,7 @@ function buildChunks(observation) {
       priority: 1,
       text: summary.rankMovers
         .slice(0, 5)
-        .map((user) => `${user.rank.direction === "up" ? "↑" : "↓"} ${user.username} ${user.rank.old}→${user.rank.new}`)
+        .map((user) => `${user.rank.direction === "up" ? "↑" : "↓"} ${formatUsername(user.username)} ${user.rank.old}→${user.rank.new}`)
         .join("\n"),
     });
   } else {
@@ -53,13 +54,13 @@ function buildChunks(observation) {
   if (summary.newUsers.length) {
     chunks.push({
       priority: 2,
-      text: `New:\n${summary.newUsers.map((user) => user.username).join("\n")}`,
+      text: `New:\n${summary.newUsers.map((user) => formatUsername(user.username)).join("\n")}`,
     });
   }
   if (summary.exitedUsers.length) {
     chunks.push({
       priority: 3,
-      text: `Exited:\n${summary.exitedUsers.map((user) => user.username).join("\n")}`,
+      text: `Exited:\n${summary.exitedUsers.map((user) => formatUsername(user.username)).join("\n")}`,
     });
   }
 
@@ -68,7 +69,7 @@ function buildChunks(observation) {
       priority: 4,
       text: `Overall Score:\n${summary.overallChanges
         .slice(0, 5)
-        .map((user) => `${user.username} ${fmt(user.overallScore.old)}→${fmt(user.overallScore.new)}`)
+        .map((user) => `${formatUsername(user.username)} ${fmt(user.overallScore.old)}→${fmt(user.overallScore.new)}`)
         .join("\n")}`,
     });
   }
@@ -76,7 +77,9 @@ function buildChunks(observation) {
   for (const field of PRIORITY_FIELDS) {
     const group = summary.categoryGroups.find((item) => item.field === field);
     if (!group) {
-      if (field === "Builder") chunks.push({ priority: 5, text: "Builder: no changes" });
+      if (field === "Builder" && observation.profileDetailsAvailable !== false) {
+        chunks.push({ priority: 5, text: "Builder: no changes" });
+      }
       continue;
     }
     const lines = group.users
@@ -85,7 +88,7 @@ function buildChunks(observation) {
         const change = user.change;
         const oldValue = "changed" in change ? change.old : fmt(change.old);
         const newValue = "changed" in change ? change.new : fmt(change.new);
-        return `${user.username} ${oldValue}→${newValue}`;
+        return `${formatUsername(user.username)} ${oldValue}→${newValue}`;
       });
     chunks.push({
       priority: PRIORITY_FIELDS.indexOf(field) + 5,
@@ -161,7 +164,7 @@ function fmt(value) {
 function summarizePostJa(text) {
   const lines = text
     .split("\n")
-    .filter((line) => line.includes("@") || line.startsWith("New") || line.startsWith("Exited") || line.includes("no changes"))
+    .filter((line) => line.includes("→") || line.startsWith("↑") || line.startsWith("↓") || line.startsWith("New") || line.startsWith("Exited") || line.includes("no changes"))
     .slice(0, 5);
   if (!lines.length) return "公開Leaderboard観測に基づく注意書きです。";
   return lines.map((line) => `・${line}`).join("\n");

@@ -45,7 +45,17 @@ async function latestPreviousSnapshotPath(storage, dateKey) {
 }
 
 function top50FromSnapshot(snapshot) {
-  return snapshot?.leaderboard?.top50 ?? snapshot?.leaderboard ?? snapshot?.profiles ?? [];
+  const top50 = snapshot?.leaderboard?.top50;
+  if (Array.isArray(top50)) return top50;
+  if (Array.isArray(snapshot?.leaderboard)) {
+    return snapshot.leaderboard.map((row) => ({
+      rank: row.rank,
+      username: row.username,
+      overallScore: row.overallScore ?? row.totalScore ?? null,
+      profileUrl: row.profileUrl,
+    }));
+  }
+  return [];
 }
 
 function top10ProfilesFromSnapshot(snapshot) {
@@ -72,7 +82,7 @@ async function countSuccessfulSnapshotsBefore(storage, dateKey) {
   return count;
 }
 
-function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, storageType, observationNumber }) {
+function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, storageType, observationNumber, diffPathValue }) {
   return {
     storage: storageType,
     baselineCollectionDays: BASELINE_COLLECTION_DAYS,
@@ -88,6 +98,8 @@ function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, 
       baselineCollectionDays: snapshot.baselineCollectionDays,
       leaderboardVersion: snapshot.leaderboardVersion,
       totalUsersCaptured: snapshot.totalUsersCaptured,
+      top10ProfilesCaptured: top10ProfilesFromSnapshot(snapshot).length,
+      failedProfiles: snapshot.failedProfiles ?? [],
       validation: snapshot.validation,
       retryCount,
       observationNumber,
@@ -104,11 +116,12 @@ function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, 
           baselineCollectionDays: previous.baselineCollectionDays,
           leaderboardVersion: previous.leaderboardVersion,
           totalUsersCaptured: previous.totalUsersCaptured,
+          top10ProfilesCaptured: top10ProfilesFromSnapshot(previous).length,
           validation: previous.validation,
           retryCount: previous.retryCount,
         }
       : null,
-    diffPath: diffPath(dateKey),
+    diffPath: diffPathValue,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -184,13 +197,15 @@ export async function createScheduledSnapshot({
       validation,
       retryCount,
     };
-    const diff = compareSnapshots({
-      oldUsers: top50FromSnapshot(previous),
-      newUsers: snapshot.leaderboard.top50,
-      oldSnapshot: previousPath ?? "none",
-      newSnapshot: currentPath,
-      scope: "top50",
-    });
+    const diff = previous
+      ? compareSnapshots({
+          oldUsers: top50FromSnapshot(previous),
+          newUsers: snapshot.leaderboard.top50,
+          oldSnapshot: previousPath,
+          newSnapshot: currentPath,
+          scope: "top50",
+        })
+      : null;
     const state = snapshotState({
       dateKey,
       snapshot,
@@ -199,12 +214,13 @@ export async function createScheduledSnapshot({
       retryCount,
       storageType: storage.type,
       observationNumber,
+      diffPathValue: diff ? diffPath(dateKey) : null,
     });
 
     await storage.commitJsonFiles(
       [
         { path: currentPath, data: snapshot },
-        { path: diffPath(dateKey), data: diff },
+        ...(diff ? [{ path: diffPath(dateKey), data: diff }] : []),
         { path: DATA_PATHS.state, data: state },
       ],
       `Add Bankr research snapshot for ${dateKey}`,
@@ -233,16 +249,23 @@ export async function readResearchState({ requireGitHub = false } = {}) {
   const previousSnapshot = state?.previousSnapshot?.path
     ? await storage.readJson(state.previousSnapshot.path, null)
     : null;
-  const diff = state?.diffPath ? await storage.readJson(state.diffPath, null) : null;
+  const currentTop50 = top50FromSnapshot(currentSnapshot);
+  const previousTop50 = top50FromSnapshot(previousSnapshot);
+  const currentValidation = validateTop50(currentTop50);
+  const previousValidation = validateTop50(previousTop50);
+  const canCompare = Boolean(previousSnapshot && currentValidation.ok && previousValidation.ok);
+  const diff = canCompare && state?.diffPath ? await storage.readJson(state.diffPath, null) : null;
 
   return {
     storage: storage.type,
     scheduledState: state,
-    oldSnapshot: top50FromSnapshot(previousSnapshot),
-    newSnapshot: top50FromSnapshot(currentSnapshot),
+    oldSnapshot: canCompare ? previousTop50 : [],
+    newSnapshot: currentTop50,
     oldTop10Profiles: top10ProfilesFromSnapshot(previousSnapshot),
     newTop10Profiles: top10ProfilesFromSnapshot(currentSnapshot),
     diff,
+    canCompare,
+    compareUnavailableReason: canCompare ? null : "比較対象となる前回Snapshotはありません",
   };
 }
 

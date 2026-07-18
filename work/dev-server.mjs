@@ -38,7 +38,11 @@ async function readState() {
   return {
     oldSnapshot: researchState.oldSnapshot,
     newSnapshot: researchState.newSnapshot,
+    oldTop10Profiles: researchState.oldTop10Profiles,
+    newTop10Profiles: researchState.newTop10Profiles,
     diff: researchState.diff,
+    canCompare: researchState.canCompare,
+    compareUnavailableReason: researchState.compareUnavailableReason,
     metadata,
     scheduledState: researchState.scheduledState,
     manualCurrent,
@@ -150,7 +154,7 @@ async function runStartupCatchUp() {
 }
 
 const vite = await createViteServer({
-  server: { middlewareMode: true, hmr: { server: undefined } },
+  server: { middlewareMode: true, hmr: false },
   appType: "spa",
 });
 

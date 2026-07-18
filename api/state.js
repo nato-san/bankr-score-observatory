@@ -10,6 +10,8 @@ export default async function handler(_request, response) {
       oldTop10Profiles: researchState.oldTop10Profiles,
       newTop10Profiles: researchState.newTop10Profiles,
       diff: researchState.diff,
+      canCompare: researchState.canCompare,
+      compareUnavailableReason: researchState.compareUnavailableReason,
       metadata: null,
       scheduledState: researchState.scheduledState,
       manualCurrent: null,

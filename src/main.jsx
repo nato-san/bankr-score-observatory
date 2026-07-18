@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import twitterText from "twitter-text";
+import { formatUsername } from "./display-formatters.js";
 import { buildObservation, summarizeDiff } from "./observations.js";
 import { generatePosts } from "./post-generator.js";
 import "./styles.css";
@@ -30,6 +31,17 @@ function App() {
   const [manualMessage, setManualMessage] = useState("");
   const formalSnapshot = dataState?.scheduledState?.currentSnapshot ?? null;
   const observationMetadata = dataState?.scheduledState ?? dataState?.metadata;
+  const currentTop50 = dataState?.newSnapshot ?? [];
+  const currentTop10Profiles = dataState?.newTop10Profiles ?? [];
+  const failedProfiles = formalSnapshot?.failedProfiles ?? [];
+  const currentSnapshotInvalid = formalSnapshot?.validation?.ok === false;
+  const hasPreviousSnapshot = Boolean(dataState?.scheduledState?.previousSnapshot);
+  const canCompare = Boolean(dataState?.canCompare && dataState?.diff);
+  const postUnavailableReason = postBlockReason({
+    currentSnapshotInvalid,
+    hasPreviousSnapshot,
+    diff: dataState?.diff,
+  });
   const observation = useMemo(() => {
     if (!dataState?.diff) return null;
     return buildObservation({
@@ -101,6 +113,7 @@ function App() {
   }
 
   function openPosts() {
+    if (postUnavailableReason) return;
     setPostsReady(true);
     setView("posts");
   }
@@ -170,13 +183,18 @@ function App() {
       )}
 
       {view === "changes" && (
-        observation && summary ? (
+        dataState?.scheduledState?.currentSnapshot ? (
           <ChangesScreen
             observation={observation}
             summary={summary}
             diff={dataState.diff}
-            top50={dataState.newSnapshot ?? []}
-            top10Profiles={dataState.newTop10Profiles ?? []}
+            top50={currentTop50}
+            top10Profiles={currentTop10Profiles}
+            failedProfiles={failedProfiles}
+            currentSnapshot={formalSnapshot}
+            canCompare={canCompare}
+            compareUnavailableReason={dataState.compareUnavailableReason}
+            postUnavailableReason={postUnavailableReason}
             onCreatePosts={openPosts}
           />
         ) : (
@@ -239,7 +257,27 @@ function InvalidSnapshotCard({ failedAttempt }) {
   );
 }
 
-function ChangesScreen({ observation, summary, diff, top50, top10Profiles, onCreatePosts }) {
+function postBlockReason({ currentSnapshotInvalid, hasPreviousSnapshot, diff }) {
+  if (currentSnapshotInvalid) return "TOP50 Snapshotがvalidではないため投稿文は作成できません。";
+  if (!hasPreviousSnapshot) {
+    return "初回Baseline Snapshotのため、まだ投稿文は作成できません。次回の正式Snapshot取得後から変動を比較できます。";
+  }
+  if (!diff) return "Diffがまだ生成されていないため投稿文は作成できません。";
+  return "";
+}
+
+function ChangesScreen({
+  observation,
+  summary,
+  top50,
+  top10Profiles,
+  failedProfiles,
+  currentSnapshot,
+  canCompare,
+  compareUnavailableReason,
+  postUnavailableReason,
+  onCreatePosts,
+}) {
   return (
     <section className="screen">
       <div className="section-head">
@@ -247,20 +285,29 @@ function ChangesScreen({ observation, summary, diff, top50, top10Profiles, onCre
         <h2>変動サマリー</h2>
       </div>
       <div className="snapshot-meta">
-        <p><span>Current snapshot</span>{formatUtc(observation.currentSnapshotAt)}</p>
-        <p><span>Previous snapshot</span>{formatUtc(observation.previousSnapshotAt)}</p>
-        <p><span>Source</span>{observation.source}</p>
+        <p><span>Current snapshot</span>{formatUtc(observation?.currentSnapshotAt ?? currentSnapshot?.capturedAt)}</p>
+        <p><span>Previous snapshot</span>{formatUtc(observation?.previousSnapshotAt)}</p>
+        <p><span>Source</span>{observation?.source ?? "Live Bankr Leaderboard"}</p>
       </div>
+      {!canCompare && (
+        <div className="warning-card">
+          <strong>初回Baseline Snapshotです。</strong>
+          <p>{compareUnavailableReason || "次回の正式Snapshot取得後から変動を比較できます。"}</p>
+          <p>次回の正式Snapshot取得後から変動を比較できます。</p>
+        </div>
+      )}
       <div className="metric-grid">
-        <Metric label="Top 50 Rank Movers" value={summary.rankMovers.length} />
-        <Metric label="Entered Top 50" value={summary.newUsers.length} />
-        <Metric label="Exited Top 50" value={summary.exitedUsers.length} />
-        <Metric label="Overall Score" value={summary.overallChanges.length} />
+        <Metric label="Top 50 Rank Movers" value={canCompare ? summary.rankMovers.length : "比較不可"} />
+        <Metric label="Entered Top 50" value={canCompare ? summary.newUsers.length : "比較不可"} />
+        <Metric label="Exited Top 50" value={canCompare ? summary.exitedUsers.length : "比較不可"} />
+        <Metric label="Overall Score" value={canCompare ? summary.overallChanges.length : "比較不可"} />
         <Metric label="Top 10 Profiles" value={top10Profiles.length} />
       </div>
 
       <Card title="TOP50内順位変動">
-        {summary.rankMovers.length ? (
+        {!canCompare ? (
+          <EmptyLine text="比較対象となる前回Snapshotがないため、順位変動は表示しません" />
+        ) : summary.rankMovers.length ? (
           summary.rankMovers.map((user) => <RankMover key={user.profileUrl} user={user} />)
         ) : (
           <EmptyLine text="順位変動はありません" />
@@ -269,14 +316,18 @@ function ChangesScreen({ observation, summary, diff, top50, top10Profiles, onCre
 
       <div className="two-stack">
         <Card title="Entered Top 50">
-          {summary.newUsers.length ? (
+          {!canCompare ? (
+            <EmptyLine text="初回Snapshotでは新規参入判定を行いません" />
+          ) : summary.newUsers.length ? (
             summary.newUsers.map((user) => <UserLine key={user.profileUrl} user={user} />)
           ) : (
             <EmptyLine text="新規ランクインなし" />
           )}
         </Card>
         <Card title="Exited Top 50">
-          {summary.exitedUsers.length ? (
+          {!canCompare ? (
+            <EmptyLine text="初回Snapshotでは退出判定を行いません" />
+          ) : summary.exitedUsers.length ? (
             summary.exitedUsers.map((user) => <UserLine key={user.profileUrl} user={user} />)
           ) : (
             <EmptyLine text="退出なし" />
@@ -290,7 +341,7 @@ function ChangesScreen({ observation, summary, diff, top50, top10Profiles, onCre
             {top50.map((user) => (
               <div className="leaderboard-row" key={user.profileUrl || user.username}>
                 <span>{user.rank}</span>
-                <strong>{user.username}</strong>
+                <strong>{formatUsername(user.username)}</strong>
                 <span>{formatValue(user.overallScore)}</span>
               </div>
             ))}
@@ -303,13 +354,24 @@ function ChangesScreen({ observation, summary, diff, top50, top10Profiles, onCre
       <Card title="TOP10詳細データ">
         {top10Profiles.length ? (
           top10Profiles.map((user) => <UserLine key={user.profileUrl} user={{ ...user, status: "existing", rank: { new: user.rank } }} />)
+        ) : failedProfiles.length ? (
+          <div className="error-card">
+            <strong>TOP10詳細データ取得失敗</strong>
+            <ul className="compact-list">
+              {failedProfiles.slice(0, 5).map((item) => (
+                <li key={item.profileUrl || item.username}>{formatUsername(item.username)}: {item.reason}</li>
+              ))}
+            </ul>
+          </div>
         ) : (
           <EmptyLine text="TOP10詳細データなし" />
         )}
       </Card>
 
       <Card title="カテゴリ変動">
-        {summary.categoryGroups.length ? (
+        {!canCompare ? (
+          <EmptyLine text="比較対象となる前回Snapshotがないため、カテゴリ変動は表示しません" />
+        ) : summary.categoryGroups.length ? (
           summary.categoryGroups.map((group) => (
             <details key={group.field} className="category-detail" open={group.field === "LLM Gateway"}>
               <summary>
@@ -319,7 +381,7 @@ function ChangesScreen({ observation, summary, diff, top50, top10Profiles, onCre
               </summary>
               {group.users.map((item) => (
                 <div className="change-line" key={`${group.field}-${item.profileUrl}`}>
-                  <strong>{item.username}</strong>
+                  <strong>{formatUsername(item.username)}</strong>
                   <span>
                     {formatValue(item.change.old)} → {formatValue(item.change.new)}
                   </span>
@@ -332,10 +394,11 @@ function ChangesScreen({ observation, summary, diff, top50, top10Profiles, onCre
         )}
       </Card>
 
-      <button className="primary-button sticky-action" onClick={onCreatePosts}>
+      <button className="primary-button sticky-action" onClick={onCreatePosts} disabled={Boolean(postUnavailableReason)}>
         <FileText size={20} />
         X投稿文を作成
       </button>
+      {postUnavailableReason && <div className="warning-card">{postUnavailableReason}</div>}
     </section>
   );
 }
@@ -363,7 +426,7 @@ function RankMover({ user }) {
   return (
     <div className={`rank-line ${isUp ? "up" : "down"}`}>
       {isUp ? <ArrowUp size={18} /> : <ArrowDown size={18} />}
-      <strong>{user.username}</strong>
+      <strong>{formatUsername(user.username)}</strong>
       <span>
         {user.rank.old} → {user.rank.new}
       </span>
@@ -374,7 +437,7 @@ function RankMover({ user }) {
 function UserLine({ user }) {
   return (
     <div className="user-line">
-      <strong>{user.username}</strong>
+      <strong>{formatUsername(user.username)}</strong>
       {user.rank?.new && <span>rank {user.rank.new}</span>}
       {user.rank?.old && !user.rank?.new && <span>old rank {user.rank.old}</span>}
     </div>

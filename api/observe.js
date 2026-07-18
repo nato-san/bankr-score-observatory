@@ -20,7 +20,11 @@ export default async function handler(request, response) {
       state: {
         oldSnapshot: researchState.oldSnapshot,
         newSnapshot: researchState.newSnapshot,
+        oldTop10Profiles: researchState.oldTop10Profiles,
+        newTop10Profiles: researchState.newTop10Profiles,
         diff: researchState.diff,
+        canCompare: researchState.canCompare,
+        compareUnavailableReason: researchState.compareUnavailableReason,
         metadata: null,
         scheduledState: researchState.scheduledState,
         manualCurrent: {
