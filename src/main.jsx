@@ -241,7 +241,27 @@ function App() {
           onBack={() => setView("home")}
         />
       )}
+
+      <AppVersionFooter />
     </main>
+  );
+}
+
+function AppVersionFooter() {
+  const buildInfo = typeof __APP_BUILD_INFO__ === "object" ? __APP_BUILD_INFO__ : {};
+  const parts = [
+    buildInfo.version,
+    buildInfo.commit,
+    buildInfo.buildTime ? `build ${formatJst(buildInfo.buildTime)}` : null,
+  ].filter(Boolean);
+
+  if (!parts.length) return null;
+
+  return (
+    <footer className="app-version">
+      <span>Bankr Score Observatory</span>
+      <span>{parts.join(" · ")}</span>
+    </footer>
   );
 }
 

@@ -161,6 +161,16 @@ h3 {
   background: #17213b;
 }
 
+.app-version {
+  padding: 20px 0 10px;
+  display: grid;
+  gap: 4px;
+  color: #7f8aa3;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
 .progress-card {
   padding: 12px;
   display: grid;
