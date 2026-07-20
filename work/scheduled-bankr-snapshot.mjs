@@ -67,8 +67,12 @@ export function top10ProfilesFromSnapshot(snapshot) {
 
 export function top50ProfilesFromSnapshot(snapshot) {
   if (Array.isArray(snapshot?.profiles?.top50)) return snapshot.profiles.top50;
-  if (Array.isArray(snapshot?.profiles?.top10)) return snapshot.profiles.top10;
-  return Array.isArray(snapshot?.profiles) ? snapshot.profiles : [];
+  if (Array.isArray(snapshot?.profiles) && snapshot.profiles.length >= TOP50_SIZE) return snapshot.profiles;
+  return [];
+}
+
+function hasCompleteTop50ProfileDetails(snapshot) {
+  return top50ProfilesFromSnapshot(snapshot).length >= TOP50_SIZE;
 }
 
 function isSuccessSnapshot(snapshot) {
@@ -169,7 +173,7 @@ export async function createScheduledSnapshot({
   const currentPath = snapshotPath(dateKey);
   const existing = await storage.readJson(currentPath, null);
 
-  if (existing?.status === "success") {
+  if (existing?.status === "success" && hasCompleteTop50ProfileDetails(existing)) {
     return {
       ok: true,
       skipped: true,
