@@ -62,6 +62,7 @@ function App() {
       newSnapshot: dataState.newSnapshot ?? [],
       diff: dataState.diff,
       metadata: observationMetadata,
+      caseResearch: dataState.caseResearch,
     });
   }, [dataState, observationMetadata]);
   const summary = useMemo(

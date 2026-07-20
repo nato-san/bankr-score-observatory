@@ -45,7 +45,7 @@ export function summarizeDiff(diff) {
   };
 }
 
-export function buildObservation({ oldSnapshot, newSnapshot, diff, metadata }) {
+export function buildObservation({ oldSnapshot, newSnapshot, diff, metadata, caseResearch = null }) {
   const summary = summarizeDiff(diff);
   const newCapturedAt = newestTimestamp(newSnapshot);
   const oldCapturedAt = newestTimestamp(oldSnapshot);
@@ -62,6 +62,8 @@ export function buildObservation({ oldSnapshot, newSnapshot, diff, metadata }) {
     profileDetailsAvailable: metadata?.currentSnapshot?.top10ProfilesCaptured == null
       ? true
       : metadata.currentSnapshot.top10ProfilesCaptured > 0,
+    currentTop50: newSnapshot.slice(0, 50),
+    caseResearch,
     diff,
     summary,
   };
