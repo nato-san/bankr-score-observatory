@@ -1,4 +1,4 @@
-import { collectBankrTop10 } from "../work/bankr-live.mjs";
+import { collectBankrTop50Details } from "../work/bankr-live.mjs";
 import { buildIntradayPreview, readResearchState } from "../work/scheduled-bankr-snapshot.mjs";
 
 export const config = {
@@ -13,7 +13,7 @@ export default async function handler(request, response) {
   }
 
   try {
-    const snapshot = await collectBankrTop10();
+    const snapshot = await collectBankrTop50Details();
     const researchState = await readResearchState({ requireGitHub: true });
     const manualCurrent = {
       capturedAt: snapshot.capturedAt,
@@ -25,7 +25,8 @@ export default async function handler(request, response) {
         top50: snapshot.top50,
       },
       profiles: {
-        top10: snapshot.profiles,
+        top50: snapshot.profiles.top50,
+        captureStatus: snapshot.profiles.captureStatus,
       },
       failedProfiles: snapshot.failedProfiles,
       validation: snapshot.validation,
@@ -38,7 +39,10 @@ export default async function handler(request, response) {
         newSnapshot: researchState.newSnapshot,
         oldTop10Profiles: researchState.oldTop10Profiles,
         newTop10Profiles: researchState.newTop10Profiles,
+        oldTop50Profiles: researchState.oldTop50Profiles,
+        newTop50Profiles: researchState.newTop50Profiles,
         diff: researchState.diff,
+        caseResearch: researchState.caseResearch,
         canCompare: researchState.canCompare,
         compareUnavailableReason: researchState.compareUnavailableReason,
         metadata: null,

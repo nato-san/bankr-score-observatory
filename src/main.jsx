@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import twitterText from "twitter-text";
+import { CASE_CATEGORY_DEFINITIONS } from "./case-research.js";
 import { formatUsername } from "./display-formatters.js";
 import { buildObservation, summarizeDiff } from "./observations.js";
 import { generatePosts } from "./post-generator.js";
@@ -87,7 +88,10 @@ function App() {
 
   async function refreshState() {
     try {
-      const response = await fetch("/api/state", { cache: "no-store" });
+      const fixtureMode = new URLSearchParams(window.location.search).get("fixture");
+      const localFixtures = new Set(["case-research", "case-baseline", "case-real-ab"]);
+      const stateUrl = localFixtures.has(fixtureMode) ? `/api/state?fixture=${fixtureMode}` : "/api/state";
+      const response = await fetch(stateUrl, { cache: "no-store" });
       if (!response.ok) throw new Error("state api failed");
       setDataState(await response.json());
       setLoadError("");
@@ -214,6 +218,8 @@ function App() {
             top10Profiles={currentTop10Profiles}
             failedProfiles={failedProfiles}
             currentSnapshot={formalSnapshot}
+            caseResearch={dataState.caseResearch}
+            isFixture={String(dataState.storage ?? "").includes("fixture")}
             canCompare={canCompare}
             compareUnavailableReason={dataState.compareUnavailableReason}
             postUnavailableReason={postUnavailableReason}
@@ -340,17 +346,35 @@ function ChangesScreen({
   top10Profiles,
   failedProfiles,
   currentSnapshot,
+  caseResearch,
+  isFixture,
   canCompare,
   compareUnavailableReason,
   postUnavailableReason,
   onCreatePosts,
 }) {
+  const [selectedCategory, setSelectedCategory] = useState("deployer");
+  const selectedRanking = caseResearch?.categoryRankings?.[selectedCategory];
+  const captureStatus = currentSnapshot?.profileCaptureStatus;
+  const detailedCaptured = captureStatus?.completeUsers ?? top10Profiles.length;
+  const detailedRequested = captureStatus?.requested ?? (top10Profiles.length ? 10 : 0);
+  const comparableUsers = caseResearch?.summary?.comparableUsers ?? 0;
+  const currentOnlyUsers = caseResearch?.summary?.currentOnlyUsers ?? 0;
+  const partialUnavailableUsers = (caseResearch?.summary?.partialUsers ?? 0) + (caseResearch?.summary?.unavailableUsers ?? 0);
+  const categoryBaseline = caseResearch?.status === "baseline";
+  const hasCaseSummary = Boolean(caseResearch?.summary);
   return (
-    <section className="screen">
+    <section className="screen changes-screen">
       <div className="section-head">
         <p className="eyebrow">Today's Changes</p>
         <h2>変動サマリー</h2>
       </div>
+      {isFixture && (
+        <div className="fixture-warning">
+          <strong>TEST FIXTURE / SYNTHETIC DATA</strong>
+          <p>この画面はローカル確認用です。合成された前回値を含み、本番データではありません。</p>
+        </div>
+      )}
       <div className="snapshot-meta">
         <p><span>Current snapshot</span>{formatUtc(observation?.currentSnapshotAt ?? currentSnapshot?.capturedAt)}</p>
         <p><span>Previous snapshot</span>{formatUtc(observation?.previousSnapshotAt)}</p>
@@ -370,6 +394,19 @@ function ChangesScreen({
         <Metric label="Overall Score" value={canCompare ? summary.overallChanges.length : "比較不可"} />
         <Metric label="Top 10 Profiles" value={top10Profiles.length} />
       </div>
+      <div className="snapshot-meta">
+        <p><span>Detailed profiles</span>{detailedRequested ? `${detailedCaptured} / ${detailedRequested} captured` : "未取得"}</p>
+        <p><span>Comparable with previous snapshot</span>{hasCaseSummary ? `${comparableUsers} / 50` : "比較不可"}</p>
+        <p><span>Current only</span>{hasCaseSummary ? currentOnlyUsers : "比較不可"}</p>
+        <p><span>Partial / unavailable</span>{hasCaseSummary ? partialUnavailableUsers : "比較不可"}</p>
+      </div>
+      {categoryBaseline && (
+        <div className="success-card">
+          <strong>Category baseline collected.</strong>
+          <p>Category changes and detected cases will be available after the next scheduled snapshot.</p>
+          <p>カテゴリ比較用の初回データを保存しました。次回の正式Snapshotからカテゴリ変動を比較できます。</p>
+        </div>
+      )}
 
       <Card title="TOP50内順位変動">
         {!canCompare ? (
@@ -461,12 +498,122 @@ function ChangesScreen({
         )}
       </Card>
 
+      <Card title="Category Changes">
+        {categoryBaseline ? (
+          <EmptyLine text="Category baseline collected. 次回の正式Snapshotからカテゴリ変動を比較できます" />
+        ) : !canCompare ? (
+          <EmptyLine text="比較対象となる前回Snapshotがないため、カテゴリ変動ランキングは表示しません" />
+        ) : caseResearch?.status === "unavailable" ? (
+          <EmptyLine text="TOP50詳細データがそろっていないため、カテゴリ変動ランキングは表示できません" />
+        ) : (
+          <>
+            <div className="case-meta-row">
+              <span>Case Detection</span>
+              <strong>{caseResearch?.status === "complete" ? "Complete" : "Limited"}</strong>
+              <span>{comparableUsers} comparable users</span>
+            </div>
+            <div className="category-tabs" role="tablist" aria-label="Category selector">
+              {CASE_CATEGORY_DEFINITIONS.filter((category) => category.key !== "social").map((category) => (
+                <button
+                  type="button"
+                  key={category.key}
+                  className={selectedCategory === category.key ? "category-tab active" : "category-tab"}
+                  onClick={() => setSelectedCategory(category.key)}
+                >
+                  {category.label}
+                </button>
+              ))}
+            </div>
+            <CategoryRanking title="Largest raw increases" rows={selectedRanking?.rawIncreases?.slice(0, 3) ?? []} />
+            <CategoryRanking title="Largest raw decreases" rows={selectedRanking?.rawDecreases?.slice(0, 3) ?? []} />
+          </>
+        )}
+      </Card>
+
+      <Card title="Detected Cases">
+        {categoryBaseline ? (
+          <EmptyLine text="Case Detection: Waiting for next comparable snapshot" />
+        ) : !canCompare ? (
+          <EmptyLine text="比較対象となる前回Snapshotがないため、Case Detectionは行いません" />
+        ) : caseResearch?.cases?.length ? (
+          <div className="case-list">
+            {caseResearch.cases.slice(0, 12).map((item) => (
+              <CaseCard key={item.caseId} item={item} />
+            ))}
+          </div>
+        ) : (
+          <EmptyLine text="検出されたCaseはありません" />
+        )}
+      </Card>
+
       <button className="primary-button sticky-action" onClick={onCreatePosts} disabled={Boolean(postUnavailableReason)}>
         <FileText size={20} />
         X投稿文を作成
       </button>
       {postUnavailableReason && <div className="warning-card">{postUnavailableReason}</div>}
     </section>
+  );
+}
+
+function CategoryRanking({ title, rows }) {
+  return (
+    <div className="ranking-block">
+      <h4>{title}</h4>
+      {rows.length ? (
+        rows.map((item) => (
+          <div className="category-row" key={`${item.accountId || item.username}-${item.category}-${title}`}>
+            <div>
+              <strong>{formatUsername(item.username)}</strong>
+              <span>rank {formatRankTransition(item.rankBefore, item.rankAfter)}</span>
+            </div>
+            <div>
+              <span>stored raw value</span>
+              <strong>{formatValue(item.diff.rawBefore)} → {formatValue(item.diff.rawAfter)}</strong>
+              <small>{formatSigned(item.diff.rawDiff)}</small>
+            </div>
+            <div>
+              <span>API score</span>
+              <strong>{formatValue(item.diff.scoreBefore)} → {formatValue(item.diff.scoreAfter)}</strong>
+            </div>
+          </div>
+        ))
+      ) : (
+        <EmptyLine text="該当するraw value changeはありません" />
+      )}
+    </div>
+  );
+}
+
+function CaseCard({ item }) {
+  return (
+    <article className="case-card">
+      <div className="case-card-head">
+        <strong>{formatUsername(item.username)}</strong>
+        <span className={`completeness ${item.dataCompleteness}`}>{formatCompleteness(item.dataCompleteness)}</span>
+      </div>
+      <div className="case-facts">
+        <span>Observation</span>
+        <strong>{formatJst(item.observationFrom)} → {formatJst(item.observationTo)}</strong>
+        <span>Rank</span>
+        <strong>{formatRankTransition(item.rankBefore, item.rankAfter)}</strong>
+        <span>Overall Score</span>
+        <strong>{formatValue(item.overallBefore)} → {formatValue(item.overallAfter)} ({formatSigned(item.overallDiff)})</strong>
+      </div>
+      <div className="reason-tags">
+        {item.detectionReasons.map((reason) => (
+          <span key={reason}>{reason}</span>
+        ))}
+      </div>
+      {item.notableVisibleChanges.length > 0 && (
+        <div className="notable-list">
+          {item.notableVisibleChanges.slice(0, 4).map((change) => (
+            <p key={`${change.category}-${change.direction}-${change.categoryRank}`}>
+              {change.categoryLabel}: {change.direction} rank #{change.categoryRank} in category, raw diff {formatSigned(change.rawDiff)}
+            </p>
+          ))}
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -684,6 +831,27 @@ function formatValue(value) {
   if (value == null) return "null";
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\\.00$/, "");
   return value;
+}
+
+function formatSigned(value) {
+  if (value == null) return "unavailable";
+  const formatted = formatValue(Math.abs(value));
+  if (value > 0) return `+${formatted}`;
+  if (value < 0) return `-${formatted}`;
+  return "0";
+}
+
+function formatRankTransition(before, after) {
+  const oldRank = before == null ? "TOP50圏外" : before;
+  const newRank = after == null ? "TOP50圏外" : after;
+  return `${oldRank} → ${newRank}`;
+}
+
+function formatCompleteness(value) {
+  if (value === "complete") return "Complete";
+  if (value === "partial") return "Partial";
+  if (value === "current-only") return "Current only";
+  return "Unavailable";
 }
 
 function formatUtc(value) {

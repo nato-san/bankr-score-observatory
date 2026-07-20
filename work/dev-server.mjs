@@ -41,7 +41,10 @@ async function readState() {
     newSnapshot: researchState.newSnapshot,
     oldTop10Profiles: researchState.oldTop10Profiles,
     newTop10Profiles: researchState.newTop10Profiles,
+    oldTop50Profiles: researchState.oldTop50Profiles,
+    newTop50Profiles: researchState.newTop50Profiles,
     diff: researchState.diff,
+    caseResearch: researchState.caseResearch,
     canCompare: researchState.canCompare,
     compareUnavailableReason: researchState.compareUnavailableReason,
     metadata,
@@ -49,6 +52,88 @@ async function readState() {
     manualCurrent,
     intradayPreview: buildIntradayPreview({ researchState, manualCurrent }),
     storage: researchState.storage,
+  };
+}
+
+const CASE_FIXTURES = {
+  "case-research": {
+    filePath: "outputs/case-research-fixture.json",
+    source: "Local Case Research Fixture",
+    storage: "local-fixture",
+  },
+  "case-baseline": {
+    filePath: "outputs/case-research-baseline-fixture.json",
+    source: "Local Case Baseline Fixture",
+    storage: "local-baseline-fixture",
+  },
+  "case-real-ab": {
+    filePath: "outputs/case-research-real-ab.json",
+    source: "Local Real API A/B Capture",
+    storage: "local-real-ab",
+  },
+};
+
+async function readCaseFixtureState(fixtureName) {
+  const config = CASE_FIXTURES[fixtureName] ?? CASE_FIXTURES["case-research"];
+  const fixture = await readJson(config.filePath, null);
+  if (!fixture) return readState();
+  const currentPath = `${config.filePath}#new`;
+  const previousPath = `${config.filePath}#old`;
+  const canCompare = Boolean(fixture.diff) && fixture.caseResearch?.status !== "baseline";
+  const previousSnapshot = fixture.oldSnapshot
+    ? {
+        date: jstDateKey(new Date(fixture.oldSnapshot?.capturedAt ?? fixture.createdAt)),
+        path: previousPath,
+        capturedAt: fixture.oldSnapshot?.capturedAt,
+        timezone: TIMEZONE,
+        source: config.source,
+        status: "success",
+        leaderboardVersion: "top50-v1",
+        totalUsersCaptured: fixture.oldSnapshot?.leaderboard?.top50?.length ?? 0,
+        top10ProfilesCaptured: fixture.oldSnapshot?.profiles?.top50?.slice(0, 10)?.length ?? 0,
+        top50ProfilesCaptured: fixture.oldSnapshot?.profiles?.top50?.length ?? 0,
+        validation: { ok: true, errors: [] },
+      }
+    : null;
+  return {
+    oldSnapshot: fixture.oldSnapshot?.leaderboard?.top50 ?? [],
+    newSnapshot: fixture.newSnapshot?.leaderboard?.top50 ?? [],
+    oldTop10Profiles: fixture.oldSnapshot?.profiles?.top50?.slice(0, 10) ?? [],
+    newTop10Profiles: fixture.newSnapshot?.profiles?.top50?.slice(0, 10) ?? [],
+    oldTop50Profiles: fixture.oldSnapshot?.profiles?.top50 ?? [],
+    newTop50Profiles: fixture.newSnapshot?.profiles?.top50 ?? [],
+    diff: fixture.diff,
+    caseResearch: fixture.caseResearch,
+    canCompare,
+    compareUnavailableReason: canCompare
+      ? null
+      : "カテゴリ比較用の初回データを保存しました。次回の正式Snapshotからカテゴリ変動を比較できます。",
+    metadata: null,
+    scheduledState: {
+      storage: config.storage,
+      baselineCollectionDays: 30,
+      lastObservationNumber: 0,
+      currentSnapshot: {
+        date: jstDateKey(new Date(fixture.newSnapshot?.capturedAt ?? fixture.createdAt)),
+        path: currentPath,
+        capturedAt: fixture.newSnapshot?.capturedAt,
+        timezone: TIMEZONE,
+        source: config.source,
+        status: "success",
+        leaderboardVersion: "top50-v1",
+        totalUsersCaptured: fixture.newSnapshot?.leaderboard?.top50?.length ?? 0,
+        top10ProfilesCaptured: fixture.newSnapshot?.profiles?.top50?.slice(0, 10)?.length ?? 0,
+        top50ProfilesCaptured: fixture.newSnapshot?.profiles?.top50?.length ?? 0,
+        profileCaptureStatus: fixture.newSnapshot?.profiles?.captureStatus ?? fixture.currentCaptureStatus,
+        validation: { ok: true, errors: [] },
+      },
+      previousSnapshot,
+      diffPath: `${config.filePath}#diff`,
+      updatedAt: fixture.createdAt,
+    },
+    manualCurrent: null,
+    intradayPreview: null,
+    storage: config.storage,
   };
 }
 
@@ -161,8 +246,10 @@ const vite = await createViteServer({
 });
 
 const server = http.createServer(async (request, response) => {
-  if (request.url === "/api/state" && request.method === "GET") {
-    sendJson(response, 200, await readState());
+  if (request.url?.startsWith("/api/state") && request.method === "GET") {
+    const url = new URL(request.url, `http://${request.headers.host ?? "localhost"}`);
+    const fixtureName = url.searchParams.get("fixture");
+    sendJson(response, 200, CASE_FIXTURES[fixtureName] ? await readCaseFixtureState(fixtureName) : await readState());
     return;
   }
 

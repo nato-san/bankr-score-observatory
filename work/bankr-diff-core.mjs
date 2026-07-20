@@ -16,6 +16,9 @@ const SCORE_FIELDS = NUMERIC_FIELDS.filter((field) => field !== "overallScore");
 const STRING_FIELDS = ["OG"];
 
 function normalizeKey(user) {
+  if (typeof user.accountId === "string" && user.accountId.trim()) {
+    return `accountId:${user.accountId.trim()}`;
+  }
   if (typeof user.profileUrl === "string" && user.profileUrl.trim()) {
     return `profileUrl:${user.profileUrl.trim()}`;
   }
@@ -115,6 +118,7 @@ function indexUsers(users, snapshotName) {
 
 function userLabel(oldUser, newUser) {
   return {
+    accountId: newUser?.accountId ?? oldUser?.accountId ?? null,
     username: newUser?.username ?? oldUser?.username ?? null,
     profileUrl: newUser?.profileUrl ?? oldUser?.profileUrl ?? null,
   };

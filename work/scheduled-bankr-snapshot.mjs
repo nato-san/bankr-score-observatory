@@ -1,7 +1,8 @@
 import { fileURLToPath } from "node:url";
-import { collectBankrTop10, LEADERBOARD_VERSION, TOP50_SIZE, validateTop50 } from "./bankr-live.mjs";
+import { collectBankrTop50Details, LEADERBOARD_VERSION, TOP50_SIZE, validateTop50 } from "./bankr-live.mjs";
 import { compareSnapshots } from "./bankr-diff-core.mjs";
 import { createSnapshotStorage, DATA_PATHS } from "./github-storage.mjs";
+import { buildCaseResearch } from "../src/case-research.js";
 
 const TIMEZONE = "Asia/Tokyo";
 const BASELINE_COLLECTION_DAYS = Number(process.env.BASELINE_COLLECTION_DAYS ?? 30);
@@ -59,7 +60,15 @@ export function top50FromSnapshot(snapshot) {
 }
 
 export function top10ProfilesFromSnapshot(snapshot) {
-  return snapshot?.profiles?.top10 ?? snapshot?.profiles ?? [];
+  if (Array.isArray(snapshot?.profiles?.top10)) return snapshot.profiles.top10;
+  if (Array.isArray(snapshot?.profiles?.top50)) return snapshot.profiles.top50.slice(0, 10);
+  return Array.isArray(snapshot?.profiles) ? snapshot.profiles : [];
+}
+
+export function top50ProfilesFromSnapshot(snapshot) {
+  if (Array.isArray(snapshot?.profiles?.top50)) return snapshot.profiles.top50;
+  if (Array.isArray(snapshot?.profiles?.top10)) return snapshot.profiles.top10;
+  return Array.isArray(snapshot?.profiles) ? snapshot.profiles : [];
 }
 
 function isSuccessSnapshot(snapshot) {
@@ -99,6 +108,8 @@ function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, 
       leaderboardVersion: snapshot.leaderboardVersion,
       totalUsersCaptured: snapshot.totalUsersCaptured,
       top10ProfilesCaptured: top10ProfilesFromSnapshot(snapshot).length,
+      top50ProfilesCaptured: top50ProfilesFromSnapshot(snapshot).length,
+      profileCaptureStatus: snapshot.profiles?.captureStatus ?? null,
       failedProfiles: snapshot.failedProfiles ?? [],
       validation: snapshot.validation,
       retryCount,
@@ -117,6 +128,8 @@ function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, 
           leaderboardVersion: previous.leaderboardVersion,
           totalUsersCaptured: previous.totalUsersCaptured,
           top10ProfilesCaptured: top10ProfilesFromSnapshot(previous).length,
+          top50ProfilesCaptured: top50ProfilesFromSnapshot(previous).length,
+          profileCaptureStatus: previous.profiles?.captureStatus ?? null,
           validation: previous.validation,
           retryCount: previous.retryCount,
         }
@@ -171,7 +184,7 @@ export async function createScheduledSnapshot({
     const previousPath = await latestPreviousSnapshotPath(storage, dateKey);
     const previous = previousPath ? await storage.readJson(previousPath, null) : null;
     const observationNumber = (await countSuccessfulSnapshotsBefore(storage, dateKey)) + 1;
-    const captured = await collectBankrTop10();
+    const captured = await collectBankrTop50Details();
     const validation = captured.validation ?? validateTop50(captured.top50 ?? []);
     if (!validation.ok) {
       const error = new Error(`Snapshot Invalid: ${validation.errors.join(", ")}`);
@@ -191,7 +204,8 @@ export async function createScheduledSnapshot({
         top50: captured.top50,
       },
       profiles: {
-        top10: captured.profiles,
+        top50: captured.profiles.top50,
+        captureStatus: captured.profiles.captureStatus,
       },
       failedProfiles: captured.failedProfiles,
       validation,
@@ -251,10 +265,22 @@ export async function readResearchState({ requireGitHub = false } = {}) {
     : null;
   const currentTop50 = top50FromSnapshot(currentSnapshot);
   const previousTop50 = top50FromSnapshot(previousSnapshot);
+  const currentTop50Profiles = top50ProfilesFromSnapshot(currentSnapshot);
+  const previousTop50Profiles = top50ProfilesFromSnapshot(previousSnapshot);
   const currentValidation = validateTop50(currentTop50);
   const previousValidation = validateTop50(previousTop50);
   const canCompare = Boolean(previousSnapshot && currentValidation.ok && previousValidation.ok);
   const diff = canCompare && state?.diffPath ? await storage.readJson(state.diffPath, null) : null;
+
+  const caseResearch = canCompare && diff
+    ? buildCaseResearch({
+        oldProfiles: previousTop50Profiles,
+        newProfiles: currentTop50Profiles,
+        diff,
+        observationFrom: previousSnapshot?.capturedAt ?? null,
+        observationTo: currentSnapshot?.capturedAt ?? null,
+      })
+    : null;
 
   return {
     storage: storage.type,
@@ -263,7 +289,10 @@ export async function readResearchState({ requireGitHub = false } = {}) {
     newSnapshot: currentTop50,
     oldTop10Profiles: top10ProfilesFromSnapshot(previousSnapshot),
     newTop10Profiles: top10ProfilesFromSnapshot(currentSnapshot),
+    oldTop50Profiles: previousTop50Profiles,
+    newTop50Profiles: currentTop50Profiles,
     diff,
+    caseResearch,
     canCompare,
     compareUnavailableReason: canCompare ? null : "比較対象となる前回Snapshotはありません",
   };
@@ -274,7 +303,15 @@ function manualTop50(manualCurrent) {
 }
 
 function manualTop10Profiles(manualCurrent) {
-  return manualCurrent?.profiles?.top10 ?? [];
+  if (Array.isArray(manualCurrent?.profiles?.top10)) return manualCurrent.profiles.top10;
+  if (Array.isArray(manualCurrent?.profiles?.top50)) return manualCurrent.profiles.top50.slice(0, 10);
+  return [];
+}
+
+function manualTop50Profiles(manualCurrent) {
+  if (Array.isArray(manualCurrent?.profiles?.top50)) return manualCurrent.profiles.top50;
+  if (Array.isArray(manualCurrent?.profiles?.top10)) return manualCurrent.profiles.top10;
+  return [];
 }
 
 export function buildIntradayPreview({ researchState, manualCurrent, now = new Date() } = {}) {
@@ -335,7 +372,14 @@ export function buildIntradayPreview({ researchState, manualCurrent, now = new D
         newSnapshot: "manual-current-profiles",
         scope: "intraday-top10-profiles",
       })
-    : null;
+      : null;
+  const caseResearch = buildCaseResearch({
+    oldProfiles: researchState?.newTop50Profiles ?? oldTop10,
+    newProfiles: manualTop50Profiles(manualCurrent),
+    diff,
+    observationFrom: formalSnapshot.capturedAt ?? null,
+    observationTo: manualCurrent.capturedAt ?? null,
+  });
 
   return {
     status: "success",
@@ -357,6 +401,7 @@ export function buildIntradayPreview({ researchState, manualCurrent, now = new D
     },
     diff,
     profileDiff,
+    caseResearch,
   };
 }
 
