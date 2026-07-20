@@ -148,6 +148,12 @@ h3 {
   border: 1px solid rgba(155, 177, 255, 0.2);
 }
 
+.ghost-button:disabled {
+  cursor: not-allowed;
+  color: #6b7280;
+  background: rgba(15, 23, 42, 0.28);
+}
+
 .icon-button {
   width: 44px;
   min-height: 44px;

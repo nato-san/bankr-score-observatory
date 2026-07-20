@@ -4,6 +4,7 @@ import http from "node:http";
 import { createServer as createViteServer } from "vite";
 import {
   createScheduledSnapshot,
+  buildIntradayPreview,
   hasSuccessfulResearchSnapshot,
   readResearchState,
   retryCountForFailedAttempt,
@@ -46,6 +47,7 @@ async function readState() {
     metadata,
     scheduledState: researchState.scheduledState,
     manualCurrent,
+    intradayPreview: buildIntradayPreview({ researchState, manualCurrent }),
     storage: researchState.storage,
   };
 }

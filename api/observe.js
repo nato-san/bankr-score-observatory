@@ -1,5 +1,5 @@
 import { collectBankrTop10 } from "../work/bankr-live.mjs";
-import { readResearchState } from "../work/scheduled-bankr-snapshot.mjs";
+import { buildIntradayPreview, readResearchState } from "../work/scheduled-bankr-snapshot.mjs";
 
 export const config = {
   maxDuration: 60,
@@ -15,6 +15,22 @@ export default async function handler(request, response) {
   try {
     const snapshot = await collectBankrTop10();
     const researchState = await readResearchState({ requireGitHub: true });
+    const manualCurrent = {
+      capturedAt: snapshot.capturedAt,
+      source: snapshot.source,
+      leaderboardSource: snapshot.leaderboardSource,
+      leaderboardVersion: snapshot.leaderboardVersion,
+      totalUsersCaptured: snapshot.totalUsersCaptured,
+      leaderboard: {
+        top50: snapshot.top50,
+      },
+      profiles: {
+        top10: snapshot.profiles,
+      },
+      failedProfiles: snapshot.failedProfiles,
+      validation: snapshot.validation,
+      status: "success",
+    };
     response.status(200).json({
       ok: true,
       state: {
@@ -27,22 +43,8 @@ export default async function handler(request, response) {
         compareUnavailableReason: researchState.compareUnavailableReason,
         metadata: null,
         scheduledState: researchState.scheduledState,
-        manualCurrent: {
-          capturedAt: snapshot.capturedAt,
-          source: snapshot.source,
-          leaderboardSource: snapshot.leaderboardSource,
-          leaderboardVersion: snapshot.leaderboardVersion,
-          totalUsersCaptured: snapshot.totalUsersCaptured,
-          leaderboard: {
-            top50: snapshot.top50,
-          },
-          profiles: {
-            top10: snapshot.profiles,
-          },
-          failedProfiles: snapshot.failedProfiles,
-          validation: snapshot.validation,
-          status: "success",
-        },
+        manualCurrent,
+        intradayPreview: buildIntradayPreview({ researchState, manualCurrent }),
         storage: researchState.storage,
       },
     });

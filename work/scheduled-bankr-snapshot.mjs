@@ -6,7 +6,7 @@ import { createSnapshotStorage, DATA_PATHS } from "./github-storage.mjs";
 const TIMEZONE = "Asia/Tokyo";
 const BASELINE_COLLECTION_DAYS = Number(process.env.BASELINE_COLLECTION_DAYS ?? 30);
 
-function jstDateKey(date = new Date()) {
+export function jstDateKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: TIMEZONE,
     year: "numeric",
@@ -44,7 +44,7 @@ async function latestPreviousSnapshotPath(storage, dateKey) {
   return successful.sort().at(-1) ?? null;
 }
 
-function top50FromSnapshot(snapshot) {
+export function top50FromSnapshot(snapshot) {
   const top50 = snapshot?.leaderboard?.top50;
   if (Array.isArray(top50)) return top50;
   if (Array.isArray(snapshot?.leaderboard)) {
@@ -58,7 +58,7 @@ function top50FromSnapshot(snapshot) {
   return [];
 }
 
-function top10ProfilesFromSnapshot(snapshot) {
+export function top10ProfilesFromSnapshot(snapshot) {
   return snapshot?.profiles?.top10 ?? snapshot?.profiles ?? [];
 }
 
@@ -266,6 +266,97 @@ export async function readResearchState({ requireGitHub = false } = {}) {
     diff,
     canCompare,
     compareUnavailableReason: canCompare ? null : "比較対象となる前回Snapshotはありません",
+  };
+}
+
+function manualTop50(manualCurrent) {
+  return manualCurrent?.leaderboard?.top50 ?? [];
+}
+
+function manualTop10Profiles(manualCurrent) {
+  return manualCurrent?.profiles?.top10 ?? [];
+}
+
+export function buildIntradayPreview({ researchState, manualCurrent, now = new Date() } = {}) {
+  if (!manualCurrent || manualCurrent.status !== "success") {
+    return {
+      status: "unavailable",
+      reason: "Manual Currentが取得されていません。",
+    };
+  }
+
+  const formalSnapshot = researchState?.scheduledState?.currentSnapshot;
+  const today = jstDateKey(now);
+  if (!formalSnapshot || formalSnapshot.date !== today || formalSnapshot.status !== "success") {
+    return {
+      status: "unavailable",
+      reason: "比較元となる本日の正式Snapshotがありません。",
+      manualCapturedAt: manualCurrent.capturedAt ?? null,
+    };
+  }
+
+  const oldTop50 = researchState?.newSnapshot ?? [];
+  const newTop50 = manualTop50(manualCurrent);
+  const oldValidation = validateTop50(oldTop50);
+  const newValidation = validateTop50(newTop50);
+  if (!oldValidation.ok) {
+    return {
+      status: "invalid",
+      reason: "本日の正式Snapshotがvalidではありません。",
+      validation: oldValidation,
+      formalCapturedAt: formalSnapshot.capturedAt ?? null,
+      manualCapturedAt: manualCurrent.capturedAt ?? null,
+    };
+  }
+  if (!newValidation.ok) {
+    return {
+      status: "invalid",
+      reason: "Manual CurrentのTOP50がvalidではありません。",
+      validation: newValidation,
+      formalCapturedAt: formalSnapshot.capturedAt ?? null,
+      manualCapturedAt: manualCurrent.capturedAt ?? null,
+    };
+  }
+
+  const diff = compareSnapshots({
+    oldUsers: oldTop50,
+    newUsers: newTop50,
+    oldSnapshot: formalSnapshot.path ?? "formal-snapshot",
+    newSnapshot: "manual-current",
+    scope: "intraday-top50",
+  });
+  const oldTop10 = researchState?.newTop10Profiles ?? [];
+  const newTop10 = manualTop10Profiles(manualCurrent);
+  const profileDiff = oldTop10.length && newTop10.length
+    ? compareSnapshots({
+        oldUsers: oldTop10,
+        newUsers: newTop10,
+        oldSnapshot: formalSnapshot.path ?? "formal-snapshot-profiles",
+        newSnapshot: "manual-current-profiles",
+        scope: "intraday-top10-profiles",
+      })
+    : null;
+
+  return {
+    status: "success",
+    title: "現在値との途中比較",
+    note: "これは本日の正式Snapshotから現在時刻までの途中比較です。正式な日次Observationではありません。",
+    generatedAt: new Date().toISOString(),
+    formalSnapshot: {
+      date: formalSnapshot.date,
+      capturedAt: formalSnapshot.capturedAt,
+      path: formalSnapshot.path,
+    },
+    manualCurrent: {
+      capturedAt: manualCurrent.capturedAt,
+      source: manualCurrent.source,
+    },
+    validation: {
+      formal: oldValidation,
+      manual: newValidation,
+    },
+    diff,
+    profileDiff,
   };
 }
 

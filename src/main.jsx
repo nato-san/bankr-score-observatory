@@ -34,6 +34,15 @@ function App() {
   const currentTop50 = dataState?.newSnapshot ?? [];
   const currentTop10Profiles = dataState?.newTop10Profiles ?? [];
   const failedProfiles = formalSnapshot?.failedProfiles ?? [];
+  const intradayPreview = dataState?.intradayPreview ?? null;
+  const intradaySummary = useMemo(
+    () => (intradayPreview?.status === "success" ? summarizeDiff(intradayPreview.diff) : null),
+    [intradayPreview],
+  );
+  const intradayProfileSummary = useMemo(
+    () => (intradayPreview?.profileDiff ? summarizeDiff(intradayPreview.profileDiff) : null),
+    [intradayPreview],
+  );
   const currentSnapshotInvalid = formalSnapshot?.validation?.ok === false;
   const hasPreviousSnapshot = Boolean(dataState?.scheduledState?.previousSnapshot);
   const canCompare = Boolean(dataState?.canCompare && dataState?.diff);
@@ -176,9 +185,19 @@ function App() {
               ))}
             </div>
           )}
-          <button className="ghost-button" onClick={() => setView("changes")}>
+          {dataState?.manualCurrent?.capturedAt && (
+            <button className="ghost-button" onClick={() => setView("intraday")}>
+              現在値との差を見る
+            </button>
+          )}
+          <button className="ghost-button" onClick={() => setView("changes")} disabled={!canCompare}>
             変動を見る
           </button>
+          {!canCompare && (
+            <div className="warning-card">
+              2件の正式Snapshotがそろうまで、正式な日次変動は表示できません。
+            </div>
+          )}
         </section>
       )}
 
@@ -211,6 +230,15 @@ function App() {
           copied={copied}
           onCopy={copyText}
           onBack={() => setView("changes")}
+        />
+      )}
+
+      {view === "intraday" && (
+        <IntradayScreen
+          preview={intradayPreview}
+          summary={intradaySummary}
+          profileSummary={intradayProfileSummary}
+          onBack={() => setView("home")}
         />
       )}
     </main>
@@ -399,6 +427,109 @@ function ChangesScreen({
         X投稿文を作成
       </button>
       {postUnavailableReason && <div className="warning-card">{postUnavailableReason}</div>}
+    </section>
+  );
+}
+
+function IntradayScreen({ preview, summary, profileSummary, onBack }) {
+  if (!preview || preview.status !== "success" || !summary) {
+    return (
+      <section className="screen">
+        <div className="section-head">
+          <p className="eyebrow">Intraday Preview</p>
+          <h2>現在値との途中比較</h2>
+        </div>
+        <div className="warning-card">{preview?.reason || "途中比較を生成できません。"}</div>
+        <button className="ghost-button" onClick={onBack}>ホームへ戻る</button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="screen">
+      <div className="section-head">
+        <p className="eyebrow">Intraday Preview</p>
+        <h2>現在値との途中比較</h2>
+      </div>
+      <div className="warning-card">{preview.note}</div>
+      <div className="snapshot-meta">
+        <p><span>Formal snapshot</span>{formatJst(preview.formalSnapshot?.capturedAt)}</p>
+        <p><span>Manual current</span>{formatJst(preview.manualCurrent?.capturedAt)}</p>
+        <p><span>Source</span>{preview.manualCurrent?.source ?? "Live Bankr Leaderboard"}</p>
+      </div>
+      <div className="metric-grid">
+        <Metric label="Top 50 Rank Movers" value={summary.rankMovers.length} />
+        <Metric label="Entered Top 50" value={summary.newUsers.length} />
+        <Metric label="Exited Top 50" value={summary.exitedUsers.length} />
+        <Metric label="Overall Score" value={summary.overallChanges.length} />
+        <Metric label="Top 10 Category Users" value={profileSummary?.categoryChangeUserCount ?? "未取得"} />
+      </div>
+
+      <Card title="TOP50内順位変動">
+        {summary.rankMovers.length ? (
+          summary.rankMovers.map((user) => <RankMover key={user.profileUrl} user={user} />)
+        ) : (
+          <EmptyLine text="順位変動はありません" />
+        )}
+      </Card>
+
+      <div className="two-stack">
+        <Card title="Entered Top 50">
+          {summary.newUsers.length ? (
+            summary.newUsers.map((user) => <UserLine key={user.profileUrl} user={user} />)
+          ) : (
+            <EmptyLine text="新規ランクインなし" />
+          )}
+        </Card>
+        <Card title="Exited Top 50">
+          {summary.exitedUsers.length ? (
+            summary.exitedUsers.map((user) => <UserLine key={user.profileUrl} user={user} />)
+          ) : (
+            <EmptyLine text="退出なし" />
+          )}
+        </Card>
+      </div>
+
+      <Card title="Overall Score変動">
+        {summary.overallChanges.length ? (
+          summary.overallChanges.map((user) => (
+            <div className="change-line" key={user.profileUrl || user.username}>
+              <strong>{formatUsername(user.username)}</strong>
+              <span>{formatValue(user.overallScore.old)} → {formatValue(user.overallScore.new)}</span>
+            </div>
+          ))
+        ) : (
+          <EmptyLine text="Overall Score変動はありません" />
+        )}
+      </Card>
+
+      <Card title="TOP10詳細カテゴリ変動">
+        {profileSummary?.categoryGroups.length ? (
+          profileSummary.categoryGroups.map((group) => (
+            <details key={group.field} className="category-detail" open={group.field === "Builder"}>
+              <summary>
+                <span>{group.field}</span>
+                <span>{group.users.length}</span>
+                <ChevronDown size={18} />
+              </summary>
+              {group.users.map((item) => (
+                <div className="change-line" key={`${group.field}-${item.profileUrl}`}>
+                  <strong>{formatUsername(item.username)}</strong>
+                  <span>
+                    {formatValue(item.change.old)} → {formatValue(item.change.new)}
+                  </span>
+                </div>
+              ))}
+            </details>
+          ))
+        ) : preview.profileDiff ? (
+          <EmptyLine text="TOP10詳細カテゴリ変動はありません" />
+        ) : (
+          <EmptyLine text="TOP10詳細データがそろっていないため、カテゴリ差分は表示しません" />
+        )}
+      </Card>
+
+      <button className="ghost-button" onClick={onBack}>ホームへ戻る</button>
     </section>
   );
 }
