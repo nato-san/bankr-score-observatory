@@ -50,6 +50,9 @@ function App() {
     currentSnapshotInvalid,
     hasPreviousSnapshot,
     diff: dataState?.diff,
+    oldSnapshot: dataState?.oldSnapshot,
+    newSnapshot: dataState?.newSnapshot,
+    previousSnapshot: dataState?.scheduledState?.previousSnapshot,
   });
   const observation = useMemo(() => {
     if (!dataState?.diff) return null;
@@ -305,13 +308,29 @@ function InvalidSnapshotCard({ failedAttempt }) {
   );
 }
 
-function postBlockReason({ currentSnapshotInvalid, hasPreviousSnapshot, diff }) {
+function postBlockReason({ currentSnapshotInvalid, hasPreviousSnapshot, diff, oldSnapshot, newSnapshot, previousSnapshot }) {
   if (currentSnapshotInvalid) return "TOP50 Snapshotがvalidではないため投稿文は作成できません。";
+  if (previousSnapshot?.validation?.ok === false) return "Previous Snapshotがvalidではないため投稿文は作成できません。";
   if (!hasPreviousSnapshot) {
     return "初回Baseline Snapshotのため、まだ投稿文は作成できません。次回の正式Snapshot取得後から変動を比較できます。";
   }
   if (!diff) return "Diffがまだ生成されていないため投稿文は作成できません。";
+  if (diff.scope?.startsWith("intraday")) return "Intraday PreviewはDaily Research投稿に使用できません。";
+  if (!isCompleteTop50(oldSnapshot) || !isCompleteTop50(newSnapshot)) {
+    return "TOP50が50件そろっていないため投稿文は作成できません。";
+  }
+  if (hasMissingOverallScore(oldSnapshot) || hasMissingOverallScore(newSnapshot)) {
+    return "Overall Score欠損があるため投稿文は作成できません。";
+  }
   return "";
+}
+
+function isCompleteTop50(snapshot) {
+  return Array.isArray(snapshot) && snapshot.length === 50;
+}
+
+function hasMissingOverallScore(snapshot) {
+  return !Array.isArray(snapshot) || snapshot.some((user) => user.overallScore == null || user.overallScore === "");
 }
 
 function ChangesScreen({
