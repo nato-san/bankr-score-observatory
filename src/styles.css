@@ -261,6 +261,31 @@ h3 {
   display: grid;
 }
 
+.leaderboard-list[hidden] {
+  display: none;
+}
+
+.collapse-button {
+  width: 100%;
+  min-height: 46px;
+  margin-bottom: 6px;
+  border: 1px solid rgba(155, 177, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #dbe7ff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.collapse-button:focus-visible {
+  outline: 2px solid #9fb5ff;
+  outline-offset: 2px;
+}
+
 .leaderboard-row {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) auto;

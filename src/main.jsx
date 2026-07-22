@@ -5,6 +5,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ChevronUp,
   Clipboard,
   Copy,
   FileText,
@@ -33,8 +34,7 @@ function App() {
   const formalSnapshot = dataState?.scheduledState?.currentSnapshot ?? null;
   const observationMetadata = dataState?.scheduledState ?? dataState?.metadata;
   const currentTop50 = dataState?.newSnapshot ?? [];
-  const currentTop10Profiles = dataState?.newTop10Profiles ?? [];
-  const failedProfiles = formalSnapshot?.failedProfiles ?? [];
+  const currentTop50Profiles = dataState?.newTop50Profiles ?? [];
   const intradayPreview = dataState?.intradayPreview ?? null;
   const intradaySummary = useMemo(
     () => (intradayPreview?.status === "success" ? summarizeDiff(intradayPreview.diff) : null),
@@ -116,7 +116,13 @@ function App() {
       if (!response.ok || !payload.ok) {
         throw new Error(payload.message || OBSERVATION_ERROR);
       }
-      setProgress((current) => [...current, "Top10 Profileを取得完了"]);
+      const profileCount = payload.state?.scheduledState?.currentSnapshot?.profileCaptureStatus?.completeUsers
+        ?? payload.state?.scheduledState?.currentSnapshot?.top50ProfilesCaptured
+        ?? payload.state?.newTop50Profiles?.length;
+      setProgress((current) => [
+        ...current,
+        profileCount ? `詳細プロフィール ${profileCount}件を取得完了` : "詳細プロフィールを取得完了",
+      ]);
       setProgress((current) => [...current, "手動の現在値として保存"]);
       setProgress((current) => [...current, "正式Snapshotは作成していません"]);
       setDataState(payload.state);
@@ -216,8 +222,7 @@ function App() {
             summary={summary}
             diff={dataState.diff}
             top50={currentTop50}
-            top10Profiles={currentTop10Profiles}
-            failedProfiles={failedProfiles}
+            top50Profiles={currentTop50Profiles}
             currentSnapshot={formalSnapshot}
             caseResearch={dataState.caseResearch}
             isFixture={String(dataState.storage ?? "").includes("fixture")}
@@ -344,8 +349,7 @@ function ChangesScreen({
   observation,
   summary,
   top50,
-  top10Profiles,
-  failedProfiles,
+  top50Profiles,
   currentSnapshot,
   caseResearch,
   isFixture,
@@ -355,10 +359,14 @@ function ChangesScreen({
   onCreatePosts,
 }) {
   const [selectedCategory, setSelectedCategory] = useState("deployer");
+  const [top50Expanded, setTop50Expanded] = useState(false);
   const selectedRanking = caseResearch?.categoryRankings?.[selectedCategory];
   const captureStatus = currentSnapshot?.profileCaptureStatus;
-  const detailedCaptured = captureStatus?.completeUsers ?? top10Profiles.length;
-  const detailedRequested = captureStatus?.requested ?? (top10Profiles.length ? 10 : 0);
+  const detailedCaptured = captureStatus?.completeUsers
+    ?? currentSnapshot?.top50ProfilesCaptured
+    ?? top50Profiles.length;
+  const detailedRequested = captureStatus?.requested
+    ?? (currentSnapshot?.top50ProfilesCaptured != null ? 50 : top50Profiles.length ? top50Profiles.length : 0);
   const comparableUsers = caseResearch?.summary?.comparableUsers ?? 0;
   const currentOnlyUsers = caseResearch?.summary?.currentOnlyUsers ?? 0;
   const partialUnavailableUsers = (caseResearch?.summary?.partialUsers ?? 0) + (caseResearch?.summary?.unavailableUsers ?? 0);
@@ -393,7 +401,7 @@ function ChangesScreen({
         <Metric label="Entered Top 50" value={canCompare ? summary.newUsers.length : "比較不可"} />
         <Metric label="Exited Top 50" value={canCompare ? summary.exitedUsers.length : "比較不可"} />
         <Metric label="Overall Score" value={canCompare ? summary.overallChanges.length : "比較不可"} />
-        <Metric label="Top 10 Profiles" value={top10Profiles.length} />
+        <Metric label="Detailed Profiles" value={detailedRequested ? `${detailedCaptured}/${detailedRequested}` : "未取得"} />
       </div>
       <div className="snapshot-meta">
         <p><span>Detailed profiles</span>{detailedRequested ? `${detailedCaptured} / ${detailedRequested} captured` : "未取得"}</p>
@@ -440,9 +448,19 @@ function ChangesScreen({
         </Card>
       </div>
 
-      <Card title="TOP50一覧">
+      <Card title={`TOP50一覧（${top50.length}）`}>
+        <button
+          type="button"
+          className="collapse-button"
+          aria-expanded={top50Expanded}
+          aria-controls="top50-leaderboard-list"
+          onClick={() => setTop50Expanded((expanded) => !expanded)}
+        >
+          {top50Expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+          {top50Expanded ? "TOP50一覧を閉じる" : "TOP50一覧を表示"}
+        </button>
         {top50.length ? (
-          <div className="leaderboard-list">
+          <div id="top50-leaderboard-list" className="leaderboard-list" hidden={!top50Expanded}>
             {top50.map((user) => (
               <div className="leaderboard-row" key={user.profileUrl || user.username}>
                 <span>{user.rank}</span>
@@ -453,23 +471,6 @@ function ChangesScreen({
           </div>
         ) : (
           <EmptyLine text="TOP50を確認できません" />
-        )}
-      </Card>
-
-      <Card title="TOP10詳細データ">
-        {top10Profiles.length ? (
-          top10Profiles.map((user) => <UserLine key={user.profileUrl} user={{ ...user, status: "existing", rank: { new: user.rank } }} />)
-        ) : failedProfiles.length ? (
-          <div className="error-card">
-            <strong>TOP10詳細データ取得失敗</strong>
-            <ul className="compact-list">
-              {failedProfiles.slice(0, 5).map((item) => (
-                <li key={item.profileUrl || item.username}>{formatUsername(item.username)}: {item.reason}</li>
-              ))}
-            </ul>
-          </div>
-        ) : (
-          <EmptyLine text="TOP10詳細データなし" />
         )}
       </Card>
 
@@ -495,7 +496,7 @@ function ChangesScreen({
             </details>
           ))
         ) : (
-          <EmptyLine text="TOP50軽量データではカテゴリ変動を判定しません" />
+          <EmptyLine text="Top 50順位一覧のデータとは別に取得した詳細プロフィールを使用して、カテゴリ変動を比較しています。" />
         )}
       </Card>
 
@@ -649,7 +650,7 @@ function IntradayScreen({ preview, summary, profileSummary, onBack }) {
         <Metric label="Entered Top 50" value={summary.newUsers.length} />
         <Metric label="Exited Top 50" value={summary.exitedUsers.length} />
         <Metric label="Overall Score" value={summary.overallChanges.length} />
-        <Metric label="Top 10 Category Users" value={profileSummary?.categoryChangeUserCount ?? "未取得"} />
+        <Metric label="Detailed Category Users" value={profileSummary?.categoryChangeUserCount ?? "未取得"} />
       </div>
 
       <Card title="TOP50内順位変動">
@@ -690,7 +691,7 @@ function IntradayScreen({ preview, summary, profileSummary, onBack }) {
         )}
       </Card>
 
-      <Card title="TOP10詳細カテゴリ変動">
+      <Card title="詳細プロフィールカテゴリ変動">
         {profileSummary?.categoryGroups.length ? (
           profileSummary.categoryGroups.map((group) => (
             <details key={group.field} className="category-detail" open={group.field === "Builder"}>
@@ -710,9 +711,9 @@ function IntradayScreen({ preview, summary, profileSummary, onBack }) {
             </details>
           ))
         ) : preview.profileDiff ? (
-          <EmptyLine text="TOP10詳細カテゴリ変動はありません" />
+          <EmptyLine text="詳細プロフィールカテゴリ変動はありません" />
         ) : (
-          <EmptyLine text="TOP10詳細データがそろっていないため、カテゴリ差分は表示しません" />
+          <EmptyLine text="詳細プロフィールがそろっていないため、カテゴリ差分は表示しません" />
         )}
       </Card>
 
