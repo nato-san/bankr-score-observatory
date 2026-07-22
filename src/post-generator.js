@@ -1,5 +1,5 @@
 import twitterText from "twitter-text";
-import { formatUsername } from "./display-formatters.js";
+import { formatOverallScore, formatUsername } from "./display-formatters.js";
 
 const HARD_LIMIT = 280;
 const PRIORITY_CATEGORIES = [
@@ -219,13 +219,13 @@ function rankMoverLine(row, index) {
   const categoryText = row.categoryChanges.length
     ? row.categoryChanges.map((item) => `${item.label} ${formattedDiff(item.rawDiff)}`).join(", ")
     : "No comparable non-zero category change found.";
-  return `${index + 1}. ${row.username} rank ${rankTransition(row)} Δ${formattedSigned(row.rankDiff)} | overall ${formatScore(row.overallBefore)}→${formatScore(row.overallAfter)} | cats: ${categoryText}`;
+  return `${index + 1}. ${row.username} rank ${rankTransition(row)} Δ${formattedSigned(row.rankDiff)} | overall ${formatOverallScore(row.overallBefore)}→${formatOverallScore(row.overallAfter)} | cats: ${categoryText}`;
 }
 
 function rankMoverJa(rows) {
   return compactLines([
     "・TOP50全体の順位変動Top3",
-    ...rows.map((row) => `・${row.username}: rank ${rankTransition(row)} / Overall ${formatScore(row.overallBefore)}→${formatScore(row.overallAfter)}`),
+    ...rows.map((row) => `・${row.username}: rank ${rankTransition(row)} / Overall ${formatOverallScore(row.overallBefore)}→${formatOverallScore(row.overallAfter)}`),
     "・同期間のカテゴリ変化は最大2件まで表示",
   ]).join("\n");
 }
@@ -314,7 +314,7 @@ function researchLeadPost(observation, state) {
 function baselineWaitingPosts(observation) {
   const title = titleLine(observation);
   const topRows = currentTopRows(observation).map(
-    (row) => `${row.rank}. ${formatUsername(row.username)} | overall ${formatScore(row.overallScore)}`,
+    (row) => `${row.rank}. ${formatUsername(row.username)} | overall ${formatOverallScore(row.overallScore)}`,
   );
   return [
     {
@@ -493,13 +493,6 @@ function formattedDiff(value) {
 function formattedSigned(value) {
   if (value == null || !Number.isFinite(value)) return "?";
   return value > 0 ? `+${value}` : String(value);
-}
-
-function formatScore(value) {
-  if (value == null || !Number.isFinite(Number(value))) return "?";
-  return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 6,
-  }).format(Number(value));
 }
 
 function withThreadNumbers(posts) {

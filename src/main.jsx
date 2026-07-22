@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import twitterText from "twitter-text";
 import { CASE_CATEGORY_DEFINITIONS } from "./case-research.js";
-import { formatUsername } from "./display-formatters.js";
+import { formatOverallDiff, formatOverallScore, formatUsername } from "./display-formatters.js";
 import { buildObservation, summarizeDiff } from "./observations.js";
 import { generatePosts } from "./post-generator.js";
 import "./styles.css";
@@ -624,7 +624,7 @@ function ChangesScreen({
               <div className="leaderboard-row" key={user.profileUrl || user.username}>
                 <span>{user.rank}</span>
                 <strong>{formatUsername(user.username)}</strong>
-                <span>{formatValue(user.overallScore)}</span>
+                <span>{formatOverallScore(user.overallScore)}</span>
               </div>
             ))}
           </div>
@@ -849,7 +849,7 @@ function CaseCard({ item }) {
         <span>Rank</span>
         <strong>{formatRankTransition(item.rankBefore, item.rankAfter)}</strong>
         <span>Overall Score</span>
-        <strong>{formatValue(item.overallBefore)} → {formatValue(item.overallAfter)} ({formatSigned(item.overallDiff)})</strong>
+        <strong>{formatOverallScore(item.overallBefore)} → {formatOverallScore(item.overallAfter)} ({formatOverallDiff(item.overallDiff)})</strong>
       </div>
       <div className="reason-tags">
         {item.detectionReasons.map((reason) => (
@@ -933,7 +933,7 @@ function IntradayScreen({ preview, summary, profileSummary, onBack }) {
           summary.overallChanges.map((user) => (
             <div className="change-line" key={user.profileUrl || user.username}>
               <strong>{formatUsername(user.username)}</strong>
-              <span>{formatValue(user.overallScore.old)} → {formatValue(user.overallScore.new)}</span>
+              <span>{formatOverallScore(user.overallScore.old)} → {formatOverallScore(user.overallScore.new)}</span>
             </div>
           ))
         ) : (
