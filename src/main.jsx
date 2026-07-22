@@ -47,6 +47,16 @@ function App() {
   const currentSnapshotInvalid = formalSnapshot?.validation?.ok === false;
   const hasPreviousSnapshot = Boolean(dataState?.scheduledState?.previousSnapshot);
   const canCompare = Boolean(dataState?.canCompare && dataState?.diff);
+  const homeDataQuality = useMemo(
+    () => deriveDataQuality({
+      currentSnapshot: formalSnapshot,
+      top50: currentTop50,
+      top50Profiles: currentTop50Profiles,
+      caseResearch: dataState?.caseResearch,
+      requireComparison: false,
+    }),
+    [formalSnapshot, currentTop50, currentTop50Profiles, dataState?.caseResearch],
+  );
   const postUnavailableReason = postBlockReason({
     currentSnapshotInvalid,
     hasPreviousSnapshot,
@@ -182,7 +192,12 @@ function App() {
             <StatusCard label="Latest Post" value={postsReady ? "作成済み" : "未作成"} />
             <StatusCard label="Manual Current" value={dataState?.manualCurrent?.capturedAt ? "確認済み" : "未確認"} />
           </div>
-          <OfficialSnapshotCard snapshot={formalSnapshot} />
+          <OfficialSnapshotCard
+            snapshot={formalSnapshot}
+            dataQuality={homeDataQuality}
+            comparisonAvailable={canCompare}
+            comparisonReason={!hasPreviousSnapshot ? "初回Baselineのため日次比較不可" : null}
+          />
           <InvalidSnapshotCard failedAttempt={dataState?.scheduledState?.lastFailedAttempt} />
           {manualMessage && <div className="success-card">{manualMessage}</div>}
           {loadError && <div className="error-card">{loadError}</div>}
@@ -224,6 +239,7 @@ function App() {
             top50={currentTop50}
             top50Profiles={currentTop50Profiles}
             currentSnapshot={formalSnapshot}
+            previousSnapshot={dataState.scheduledState?.previousSnapshot}
             caseResearch={dataState.caseResearch}
             isFixture={String(dataState.storage ?? "").includes("fixture")}
             canCompare={canCompare}
@@ -289,7 +305,7 @@ function StatusCard({ label, value }) {
   );
 }
 
-function OfficialSnapshotCard({ snapshot }) {
+function OfficialSnapshotCard({ snapshot, dataQuality, comparisonAvailable, comparisonReason }) {
   return (
     <section className="snapshot-meta">
       <h3>正式Snapshot</h3>
@@ -298,6 +314,11 @@ function OfficialSnapshotCard({ snapshot }) {
       <p><span>状態</span>{snapshot?.status === "success" ? "成功" : "未取得"}</p>
       {snapshot?.leaderboardVersion && <p><span>Leaderboard</span>{snapshot.leaderboardVersion}</p>}
       {snapshot?.totalUsersCaptured != null && <p><span>取得件数</span>{snapshot.totalUsersCaptured}</p>}
+      <p><span>Snapshot Quality</span>{formatQualityStatus(dataQuality)}</p>
+      <p>
+        <span>Comparison</span>
+        {comparisonAvailable ? "Available（比較可能）" : `Unavailable（比較不可）${comparisonReason ? ` - ${comparisonReason}` : ""}`}
+      </p>
     </section>
   );
 }
@@ -345,12 +366,136 @@ function hasMissingOverallScore(snapshot) {
   return !Array.isArray(snapshot) || snapshot.some((user) => user.overallScore == null || user.overallScore === "");
 }
 
+const QUALITY_LABELS = {
+  complete: { en: "Complete", ja: "完全" },
+  partial: { en: "Partial", ja: "一部欠損" },
+  invalid: { en: "Invalid", ja: "無効" },
+  unavailable: { en: "Unavailable", ja: "利用不可" },
+};
+
+function formatQualityStatus(quality) {
+  const label = QUALITY_LABELS[quality?.status] ?? QUALITY_LABELS.unavailable;
+  return `${label.en}（${label.ja}）`;
+}
+
+function deriveDataQuality({
+  currentSnapshot,
+  previousSnapshot = null,
+  top50 = [],
+  top50Profiles = [],
+  caseResearch = null,
+  requireComparison = false,
+} = {}) {
+  const validation = currentSnapshot?.validation ?? null;
+  const previousValidation = previousSnapshot?.validation ?? null;
+  const top50Captured = currentSnapshot?.totalUsersCaptured ?? (Array.isArray(top50) ? top50.length : 0);
+  const captureStatus = currentSnapshot?.profileCaptureStatus ?? null;
+  const detailedRequested = captureStatus?.requested
+    ?? (currentSnapshot?.top50ProfilesCaptured != null ? 50 : top50Profiles.length ? top50Profiles.length : 0);
+  const detailedCaptured = captureStatus?.completeUsers
+    ?? currentSnapshot?.top50ProfilesCaptured
+    ?? (Array.isArray(top50Profiles) ? top50Profiles.length : 0);
+  const failedProfiles = currentSnapshot?.failedProfiles ?? [];
+  const caseSummary = caseResearch?.summary ?? null;
+  const comparableUsers = caseSummary?.comparableUsers ?? null;
+  const currentOnlyUsers = caseSummary?.currentOnlyUsers ?? 0;
+  const partialUsers = caseSummary?.partialUsers ?? 0;
+  const unavailableUsers = caseSummary?.unavailableUsers ?? 0;
+  const partialUnavailable = partialUsers + unavailableUsers;
+  const delayMinutes = scheduleDelayMinutes(currentSnapshot?.scheduledFor, currentSnapshot?.capturedAt);
+  const reasons = [];
+
+  let status = "complete";
+
+  if (!currentSnapshot) {
+    status = "unavailable";
+    reasons.push("正式Snapshotがまだ取得されていません。");
+  } else if (validation?.ok === false) {
+    status = "invalid";
+    reasons.push("Current Snapshot validationが失敗しています。");
+  } else if (top50Captured !== 50) {
+    status = "invalid";
+    reasons.push("Top 50取得件数が50件ではありません。");
+  } else if (detailedRequested === 0) {
+    status = "partial";
+    reasons.push("詳細プロフィール取得件数を確認できません。");
+  } else if (requireComparison && !previousSnapshot) {
+    status = "unavailable";
+    reasons.push("Previous Snapshotがないため日次比較はまだ評価できません。");
+  } else if (requireComparison && previousValidation?.ok === false) {
+    status = "invalid";
+    reasons.push("Previous Snapshot validationが失敗しています。");
+  } else if (detailedRequested > 0 && detailedCaptured < detailedRequested) {
+    status = "partial";
+    reasons.push("詳細プロフィールに一部欠損があります。");
+  } else if (failedProfiles.length > 0) {
+    status = "partial";
+    reasons.push("取得失敗プロフィールがあります。");
+  } else if (requireComparison && caseResearch?.status === "baseline") {
+    status = "unavailable";
+    reasons.push("初回Baselineのためカテゴリ比較は次回Snapshotから利用可能です。");
+  } else if (requireComparison && !caseSummary) {
+    status = "unavailable";
+    reasons.push("Case Research比較情報がまだありません。");
+  } else if (requireComparison && caseSummary && comparableUsers !== null && comparableUsers < 50) {
+    status = "partial";
+    reasons.push("比較可能な詳細プロフィールが50件未満です。");
+  } else if (requireComparison && partialUnavailable > 0) {
+    status = "partial";
+    reasons.push("Partial / Unavailableが存在します。");
+  }
+
+  if (!reasons.length) {
+    reasons.push(status === "complete"
+      ? "設定した取得・検証条件を満たしています。"
+      : "利用可能な品質情報が不足しています。");
+  }
+
+  return {
+    status,
+    labelEn: QUALITY_LABELS[status].en,
+    labelJa: QUALITY_LABELS[status].ja,
+    reasons,
+    metrics: {
+      top50Captured,
+      top50Expected: 50,
+      detailedCaptured,
+      detailedRequested,
+      comparableUsers,
+      currentOnlyUsers,
+      partialUsers,
+      unavailableUsers,
+      partialUnavailable,
+      failedProfiles,
+      validation,
+      previousValidation,
+      leaderboardVersion: currentSnapshot?.leaderboardVersion ?? null,
+      scheduledFor: currentSnapshot?.scheduledFor ?? null,
+      capturedAt: currentSnapshot?.capturedAt ?? null,
+      delayMinutes,
+      snapshotStatus: currentSnapshot?.status ?? null,
+      comparisonAvailable: Boolean(requireComparison ? previousSnapshot && caseResearch?.status !== "baseline" : currentSnapshot),
+    },
+  };
+}
+
+function scheduleDelayMinutes(scheduledFor, capturedAt) {
+  if (!scheduledFor || !capturedAt) return null;
+  const scheduled = new Date(scheduledFor);
+  const captured = new Date(capturedAt);
+  if (Number.isNaN(scheduled.getTime()) || Number.isNaN(captured.getTime())) return null;
+  const diff = captured.getTime() - scheduled.getTime();
+  if (diff < 0) return null;
+  return Math.round(diff / 60000);
+}
+
 function ChangesScreen({
   observation,
   summary,
   top50,
   top50Profiles,
   currentSnapshot,
+  previousSnapshot,
   caseResearch,
   isFixture,
   canCompare,
@@ -360,6 +505,7 @@ function ChangesScreen({
 }) {
   const [selectedCategory, setSelectedCategory] = useState("deployer");
   const [top50Expanded, setTop50Expanded] = useState(false);
+  const [qualityExpanded, setQualityExpanded] = useState(false);
   const selectedRanking = caseResearch?.categoryRankings?.[selectedCategory];
   const captureStatus = currentSnapshot?.profileCaptureStatus;
   const detailedCaptured = captureStatus?.completeUsers
@@ -372,6 +518,14 @@ function ChangesScreen({
   const partialUnavailableUsers = (caseResearch?.summary?.partialUsers ?? 0) + (caseResearch?.summary?.unavailableUsers ?? 0);
   const categoryBaseline = caseResearch?.status === "baseline";
   const hasCaseSummary = Boolean(caseResearch?.summary);
+  const dataQuality = deriveDataQuality({
+    currentSnapshot,
+    previousSnapshot,
+    top50,
+    top50Profiles,
+    caseResearch,
+    requireComparison: true,
+  });
   return (
     <section className="screen changes-screen">
       <div className="section-head">
@@ -389,6 +543,11 @@ function ChangesScreen({
         <p><span>Previous snapshot</span>{formatUtc(observation?.previousSnapshotAt)}</p>
         <p><span>Source</span>{observation?.source ?? "Live Bankr Leaderboard"}</p>
       </div>
+      <DataQualityPanel
+        quality={dataQuality}
+        expanded={qualityExpanded}
+        onToggle={() => setQualityExpanded((expanded) => !expanded)}
+      />
       {!canCompare && (
         <div className="warning-card">
           <strong>初回Baseline Snapshotです。</strong>
@@ -584,6 +743,97 @@ function CategoryRanking({ title, rows }) {
       )}
     </div>
   );
+}
+
+function DataQualityPanel({ quality, expanded, onToggle }) {
+  const detailsId = "data-quality-details";
+  const metrics = quality.metrics ?? {};
+  const failedProfiles = metrics.failedProfiles ?? [];
+  const failedPreview = failedProfiles.slice(0, 4).map((item) => formatUsername(item.username)).filter(Boolean);
+  const failedMore = Math.max(0, failedProfiles.length - failedPreview.length);
+
+  return (
+    <section className={`data-quality-panel ${quality.status}`}>
+      <div className="data-quality-head">
+        <div>
+          <span>DATA QUALITY</span>
+          <strong>{formatQualityStatus(quality)}</strong>
+        </div>
+        <span className={`quality-pill ${quality.status}`}>{quality.labelJa}</span>
+      </div>
+      <div className="quality-metrics">
+        <QualityMetric label="Top 50" value={`${metrics.top50Captured ?? 0} / ${metrics.top50Expected ?? 50}`} />
+        <QualityMetric
+          label="Detailed Profiles"
+          subLabel="詳細プロフィール"
+          value={metrics.detailedRequested ? `${metrics.detailedCaptured} / ${metrics.detailedRequested}` : "未取得"}
+        />
+        <QualityMetric
+          label="Comparable"
+          subLabel="比較可能"
+          value={metrics.comparableUsers == null ? "比較不可" : `${metrics.comparableUsers} / 50`}
+        />
+        <QualityMetric label="Partial / Unavailable" value={metrics.partialUnavailable ?? 0} />
+      </div>
+      <button
+        type="button"
+        className="quality-toggle"
+        aria-expanded={expanded}
+        aria-controls={detailsId}
+        onClick={onToggle}
+      >
+        {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        {expanded ? "品質詳細を閉じる" : "品質詳細を表示"}
+      </button>
+      <div id={detailsId} className="quality-details" hidden={!expanded}>
+        <QualityDetail label="Current Snapshot validation" value={formatValidation(metrics.validation)} />
+        <QualityDetail label="Previous Snapshot validation" value={formatValidation(metrics.previousValidation)} />
+        <QualityDetail label="Current Only" value={metrics.currentOnlyUsers ?? 0} />
+        <QualityDetail label="Failed Profiles（取得失敗）" value={failedProfiles.length} />
+        {failedPreview.length > 0 && (
+          <p className="quality-list">{failedPreview.join(", ")}{failedMore ? ` +${failedMore}` : ""}</p>
+        )}
+        <QualityDetail label="Leaderboard Version" value={metrics.leaderboardVersion ?? "未取得"} />
+        <QualityDetail label="Scheduled At" value={formatJst(metrics.scheduledFor)} />
+        <QualityDetail label="Captured At" value={formatJst(metrics.capturedAt)} />
+        {metrics.delayMinutes != null && (
+          <QualityDetail label="Schedule Delay（取得遅延）" value={`${metrics.delayMinutes}分`} />
+        )}
+        <QualityDetail label="Compare Availability" value={metrics.comparisonAvailable ? "Available（比較可能）" : "Unavailable（比較不可）"} />
+        <QualityDetail label="Snapshot status" value={metrics.snapshotStatus ?? "未取得"} />
+        <div className="quality-reasons">
+          {quality.reasons.map((reason) => (
+            <p key={reason}>{reason}</p>
+          ))}
+          <p>Data Qualityは取得completenessと比較可能性を示すものであり、Bankr公式スコア計算の正しさを保証するものではありません。</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function QualityMetric({ label, subLabel, value }) {
+  return (
+    <div className="quality-metric">
+      <span>{label}</span>
+      {subLabel && <small>{subLabel}</small>}
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function QualityDetail({ label, value }) {
+  return (
+    <p>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </p>
+  );
+}
+
+function formatValidation(validation) {
+  if (!validation) return "未取得";
+  return validation.ok === false ? "Invalid（無効）" : "Valid（有効）";
 }
 
 function CaseCard({ item }) {
