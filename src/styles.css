@@ -216,6 +216,23 @@ h3 {
   padding: 14px;
 }
 
+.summary-lines {
+  display: grid;
+  gap: 10px;
+}
+
+.summary-lines p {
+  color: #dbe7ff;
+  line-height: 1.55;
+}
+
+.summary-lines strong {
+  display: block;
+  color: #9ca3af;
+  font-size: 0.78rem;
+  margin-bottom: 2px;
+}
+
 .rank-line,
 .user-line,
 .change-line {

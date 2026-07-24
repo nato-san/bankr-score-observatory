@@ -17,6 +17,9 @@ import { CASE_CATEGORY_DEFINITIONS } from "./case-research.js";
 import { formatOverallDiff, formatOverallScore, formatUsername } from "./display-formatters.js";
 import { buildObservation, summarizeDiff } from "./observations.js";
 import { generatePosts } from "./post-generator.js";
+import { buildTodaysSummaryContent } from "./todays-summary-content.js";
+import { normalizeTodaysSummaryInput } from "./todays-summary-input.js";
+import { selectTodaysSummaryInsight } from "./todays-summary-selector.js";
 import "./styles.css";
 
 const OBSERVATION_ERROR =
@@ -492,6 +495,7 @@ function scheduleDelayMinutes(scheduledFor, capturedAt) {
 function ChangesScreen({
   observation,
   summary,
+  diff,
   top50,
   top50Profiles,
   currentSnapshot,
@@ -526,6 +530,16 @@ function ChangesScreen({
     caseResearch,
     requireComparison: true,
   });
+  const todaysSummary = useMemo(() => {
+    const normalized = normalizeTodaysSummaryInput({
+      diff,
+      caseResearch,
+      dataQuality,
+      comparisonAvailable: canCompare,
+      comparisonReason: compareUnavailableReason,
+    });
+    return buildTodaysSummaryContent(selectTodaysSummaryInsight(normalized));
+  }, [diff, caseResearch, dataQuality, canCompare, compareUnavailableReason]);
   return (
     <section className="screen changes-screen">
       <div className="section-head">
@@ -548,6 +562,14 @@ function ChangesScreen({
         expanded={qualityExpanded}
         onToggle={() => setQualityExpanded((expanded) => !expanded)}
       />
+      <Card title="Today's Summary">
+        <div className="summary-lines">
+          <p><strong>結論</strong>{todaysSummary.conclusion}</p>
+          <p><strong>根拠</strong>{todaysSummary.evidencePrimary}</p>
+          <p><strong>補足</strong>{todaysSummary.evidenceSecondary}</p>
+          <p><strong>注意</strong>{todaysSummary.disclaimer}</p>
+        </div>
+      </Card>
       {!canCompare && (
         <div className="warning-card">
           <strong>初回Baseline Snapshotです。</strong>
