@@ -564,10 +564,10 @@ function ChangesScreen({
       />
       <Card title="Today's Summary">
         <div className="summary-lines">
-          <p><strong>結論</strong>{todaysSummary.conclusion}</p>
-          <p><strong>根拠</strong>{todaysSummary.evidencePrimary}</p>
-          <p><strong>補足</strong>{todaysSummary.evidenceSecondary}</p>
-          <p><strong>注意</strong>{todaysSummary.disclaimer}</p>
+          <p className="summary-conclusion"><strong>結論</strong><span>{todaysSummary.conclusion}</span></p>
+          <p><strong>根拠</strong><span>{todaysSummary.evidencePrimary}</span></p>
+          <p><strong>補足</strong><span>{todaysSummary.evidenceSecondary}</span></p>
+          <p className="summary-disclaimer"><strong>注意</strong><span>{todaysSummary.disclaimer}</span></p>
         </div>
       </Card>
       {!canCompare && (

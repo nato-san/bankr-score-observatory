@@ -218,19 +218,51 @@ h3 {
 
 .summary-lines {
   display: grid;
-  gap: 10px;
+  gap: 7px;
+  min-width: 0;
 }
 
 .summary-lines p {
+  display: grid;
+  grid-template-columns: 3.1rem minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
   color: #dbe7ff;
-  line-height: 1.55;
+  line-height: 1.42;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
 }
 
 .summary-lines strong {
-  display: block;
   color: #9ca3af;
-  font-size: 0.78rem;
-  margin-bottom: 2px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  text-transform: uppercase;
+  align-self: start;
+}
+
+.summary-lines span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.summary-conclusion {
+  grid-template-columns: 1fr;
+  gap: 3px;
+  padding-bottom: 4px;
+}
+
+.summary-conclusion span {
+  color: #edf2ff;
+  font-size: 1.03rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.summary-disclaimer {
+  color: #a8b3ca;
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .rank-line,
