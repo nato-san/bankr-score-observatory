@@ -410,23 +410,24 @@ h3 {
 
 .category-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  overflow-x: auto;
   max-width: 100%;
   min-width: 0;
-  padding-bottom: 8px;
   margin-bottom: 8px;
-  -webkit-overflow-scrolling: touch;
 }
 
 .category-tab {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  max-width: 100%;
   border: 1px solid rgba(155, 177, 255, 0.18);
   background: rgba(15, 23, 42, 0.8);
   color: #c7d2fe;
   border-radius: 8px;
   min-height: 36px;
   padding: 0 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .category-tab.active {
