@@ -116,6 +116,7 @@ h3 {
   display: block;
   color: #9ca3af;
   font-size: 0.82rem;
+  overflow-wrap: anywhere;
 }
 
 .status-card strong {
@@ -123,6 +124,7 @@ h3 {
   margin-top: 8px;
   font-size: 1.02rem;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .primary-button,
@@ -210,6 +212,7 @@ h3 {
   font-size: 1.7rem;
   line-height: 1;
   margin-bottom: 8px;
+  overflow-wrap: anywhere;
 }
 
 .card {
@@ -269,7 +272,7 @@ h3 {
 .user-line,
 .change-line {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) max-content;
   gap: 10px;
   align-items: center;
   padding: 11px 0;
@@ -302,7 +305,7 @@ h3 {
 }
 
 .user-line {
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) max-content;
 }
 
 .user-line span,
@@ -357,11 +360,12 @@ h3 {
 
 .leaderboard-row {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-columns: 36px minmax(0, 1fr) max-content;
   gap: 10px;
   align-items: center;
   padding: 9px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
+  min-width: 0;
 }
 
 .leaderboard-row:first-child {
@@ -375,6 +379,8 @@ h3 {
 
 .leaderboard-row span {
   color: #b8c2d8;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .category-detail {
@@ -383,10 +389,17 @@ h3 {
 
 .case-meta-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) max-content;
   gap: 4px 10px;
   color: #c7d2fe;
   margin-bottom: 12px;
+  min-width: 0;
+}
+
+.case-meta-row span,
+.case-meta-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .case-meta-row span:last-child {
@@ -400,6 +413,7 @@ h3 {
   gap: 8px;
   overflow-x: auto;
   max-width: 100%;
+  min-width: 0;
   padding-bottom: 8px;
   margin-bottom: 8px;
   -webkit-overflow-scrolling: touch;
@@ -546,11 +560,17 @@ h3 {
 .category-detail summary {
   min-height: 46px;
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
   gap: 10px;
   align-items: center;
   cursor: pointer;
   list-style: none;
+  min-width: 0;
+}
+
+.category-detail summary span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .category-detail summary::-webkit-details-marker {
@@ -627,6 +647,7 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   min-width: 0;
 }
@@ -696,6 +717,7 @@ h3 {
   display: block;
   margin-top: 5px;
   font-size: 1rem;
+  overflow-wrap: anywhere;
 }
 
 .quality-toggle {
@@ -782,8 +804,16 @@ h3 {
 .post-meta {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   align-items: center;
+  min-width: 0;
+}
+
+.post-meta strong,
+.post-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .count {
