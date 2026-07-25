@@ -174,6 +174,7 @@ function App() {
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${secret}`,
+          "x-bankr-admin-secret": secret,
         },
         body: JSON.stringify({ actor, reason }),
       });
