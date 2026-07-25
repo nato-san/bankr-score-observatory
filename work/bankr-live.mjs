@@ -1,5 +1,5 @@
 export const BANKR_SOURCE = "Live Bankr Leaderboard";
-export const BANKR_TIMEFRAME = "total";
+export const BANKR_TIMEFRAME = "24h";
 export const LEADERBOARD_VERSION = "top50-v1";
 export const TOP50_SIZE = 50;
 
