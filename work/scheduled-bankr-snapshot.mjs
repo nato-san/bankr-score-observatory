@@ -30,11 +30,30 @@ function diffPath(dateKey) {
   return `${DATA_PATHS.diffsDir}/${dateKey}.json`;
 }
 
+function officialBaselinePath(dateKey, capturedAt = new Date().toISOString()) {
+  const timestamp = String(capturedAt)
+    .replace(/[:.]/g, "-")
+    .replace(/[^0-9A-Za-z_-]/g, "_");
+  return `${DATA_PATHS.officialBaselinesDir}/${dateKey}-${timestamp}.json`;
+}
+
 function pathDateKey(repoPath) {
   return repoPath.split("/").at(-1)?.replace(/\.json$/, "") ?? "";
 }
 
+async function activeOfficialBaselinePath(storage, dateKey) {
+  const state = await storage.readJson(DATA_PATHS.state, null);
+  const baselinePath = state?.officialBaseline?.path;
+  if (state?.officialBaseline?.usedBySnapshot) return null;
+  if (!baselinePath || pathDateKey(baselinePath) >= dateKey) return null;
+  const baseline = await storage.readJson(baselinePath, null);
+  return isSuccessTop50Snapshot(baseline) ? baselinePath : null;
+}
+
 async function latestPreviousSnapshotPath(storage, dateKey) {
+  const officialBaseline = await activeOfficialBaselinePath(storage, dateKey);
+  if (officialBaseline) return officialBaseline;
+
   const files = await storage.listJson(DATA_PATHS.snapshotsDir);
   const successful = [];
   for (const file of files) {
@@ -95,11 +114,35 @@ async function countSuccessfulSnapshotsBefore(storage, dateKey) {
   return count;
 }
 
-function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, storageType, observationNumber, diffPathValue }) {
+function snapshotState({
+  dateKey,
+  snapshot,
+  previousPath,
+  previous,
+  retryCount,
+  storageType,
+  observationNumber,
+  diffPathValue,
+  officialBaseline = null,
+}) {
+  const usedOfficialBaseline = officialBaseline?.path && previousPath === officialBaseline.path;
   return {
     storage: storageType,
     baselineCollectionDays: BASELINE_COLLECTION_DAYS,
     lastObservationNumber: observationNumber,
+    ...(officialBaseline
+      ? {
+          officialBaseline: {
+            ...officialBaseline,
+            ...(usedOfficialBaseline
+              ? {
+                  usedBySnapshot: snapshotPath(dateKey),
+                  usedAt: new Date().toISOString(),
+                }
+              : {}),
+          },
+        }
+      : {}),
     currentSnapshot: {
       date: dateKey,
       path: snapshotPath(dateKey),
@@ -143,6 +186,52 @@ function snapshotState({ dateKey, snapshot, previousPath, previous, retryCount, 
   };
 }
 
+function baselineState({ dateKey, baselinePath, snapshot, reason, actor, storageType }) {
+  return {
+    storage: storageType,
+    baselineCollectionDays: BASELINE_COLLECTION_DAYS,
+    lastObservationNumber: 0,
+    officialBaseline: {
+      date: dateKey,
+      path: baselinePath,
+      capturedAt: snapshot.capturedAt,
+      createdAt: snapshot.officialBaseline?.createdAt ?? snapshot.capturedAt,
+      createdBy: actor,
+      reason,
+      source: snapshot.source,
+      leaderboardSource: snapshot.leaderboardSource,
+      leaderboardVersion: snapshot.leaderboardVersion,
+      totalUsersCaptured: snapshot.totalUsersCaptured,
+      top50ProfilesCaptured: top50ProfilesFromSnapshot(snapshot).length,
+      profileCaptureStatus: snapshot.profiles?.captureStatus ?? null,
+      validation: snapshot.validation,
+    },
+    currentSnapshot: {
+      date: dateKey,
+      path: baselinePath,
+      scheduledFor: snapshot.scheduledFor,
+      capturedAt: snapshot.capturedAt,
+      timezone: snapshot.timezone,
+      source: snapshot.source,
+      status: snapshot.status,
+      baselineCollectionDays: snapshot.baselineCollectionDays,
+      leaderboardVersion: snapshot.leaderboardVersion,
+      totalUsersCaptured: snapshot.totalUsersCaptured,
+      top10ProfilesCaptured: top10ProfilesFromSnapshot(snapshot).length,
+      top50ProfilesCaptured: top50ProfilesFromSnapshot(snapshot).length,
+      profileCaptureStatus: snapshot.profiles?.captureStatus ?? null,
+      failedProfiles: snapshot.failedProfiles ?? [],
+      validation: snapshot.validation,
+      retryCount: 0,
+      observationNumber: 0,
+      officialBaseline: true,
+    },
+    previousSnapshot: null,
+    diffPath: null,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 async function recordFailedAttempt({ storage, dateKey, scheduledFor, retryCount, error }) {
   const state = await storage.readJson(DATA_PATHS.state, {});
   state.storage = storage.type;
@@ -172,6 +261,7 @@ export async function createScheduledSnapshot({
   const scheduledFor = scheduledForFromDateKey(dateKey);
   const currentPath = snapshotPath(dateKey);
   const existing = await storage.readJson(currentPath, null);
+  const existingState = await storage.readJson(DATA_PATHS.state, null);
 
   if (existing?.status === "success" && hasCompleteTop50ProfileDetails(existing)) {
     return {
@@ -233,6 +323,7 @@ export async function createScheduledSnapshot({
       storageType: storage.type,
       observationNumber,
       diffPathValue: diff ? diffPath(dateKey) : null,
+      officialBaseline: existingState?.officialBaseline ?? null,
     });
 
     await storage.commitJsonFiles(
@@ -256,6 +347,82 @@ export async function createScheduledSnapshot({
     await recordFailedAttempt({ storage, dateKey, scheduledFor, retryCount, error });
     throw error;
   }
+}
+
+export async function createOfficialBaseline({
+  date = new Date(),
+  reason = "",
+  actor = "",
+  requireGitHub = false,
+} = {}) {
+  const storage = createSnapshotStorage({ requireGitHub });
+  const dateKey = typeof date === "string" ? date : jstDateKey(date);
+  const scheduledFor = scheduledForFromDateKey(dateKey);
+  const createdAt = new Date().toISOString();
+  const captured = await collectBankrTop50Details();
+  const validation = captured.validation ?? validateTop50(captured.top50 ?? []);
+  if (!validation.ok) {
+    const error = new Error(`Official Baseline Invalid: ${validation.errors.join(", ")}`);
+    error.validation = validation;
+    throw error;
+  }
+
+  const safeReason = String(reason ?? "").trim() || "Manual official baseline";
+  const safeActor = String(actor ?? "").trim() || "admin";
+  const baselinePath = officialBaselinePath(dateKey, captured.capturedAt ?? createdAt);
+  const snapshot = {
+    scheduledFor,
+    capturedAt: captured.capturedAt,
+    timezone: TIMEZONE,
+    source: captured.source,
+    leaderboardSource: captured.leaderboardSource,
+    status: "success",
+    baselineCollectionDays: BASELINE_COLLECTION_DAYS,
+    leaderboardVersion: LEADERBOARD_VERSION,
+    totalUsersCaptured: TOP50_SIZE,
+    leaderboard: {
+      top50: captured.top50,
+    },
+    profiles: {
+      top50: captured.profiles.top50,
+      captureStatus: captured.profiles.captureStatus,
+    },
+    failedProfiles: captured.failedProfiles,
+    validation,
+    retryCount: 0,
+    officialBaseline: {
+      createdAt,
+      createdBy: safeActor,
+      reason: safeReason,
+      date: dateKey,
+      path: baselinePath,
+      activeForNextDiff: true,
+    },
+  };
+  const state = baselineState({
+    dateKey,
+    baselinePath,
+    snapshot,
+    reason: safeReason,
+    actor: safeActor,
+    storageType: storage.type,
+  });
+
+  await storage.commitJsonFiles(
+    [
+      { path: baselinePath, data: snapshot },
+      { path: DATA_PATHS.state, data: state },
+    ],
+    `Create Bankr official baseline for ${dateKey}`,
+  );
+
+  return {
+    ok: true,
+    baselinePath,
+    snapshot,
+    state,
+    storage: storage.type,
+  };
 }
 
 export async function readResearchState({ requireGitHub = false } = {}) {

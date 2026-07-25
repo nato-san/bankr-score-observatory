@@ -34,6 +34,9 @@ function App() {
   const [dataState, setDataState] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [manualMessage, setManualMessage] = useState("");
+  const [baselineRunning, setBaselineRunning] = useState(false);
+  const [baselineForm, setBaselineForm] = useState({ actor: "", reason: "", secret: "" });
+  const [baselineMessage, setBaselineMessage] = useState("");
   const formalSnapshot = dataState?.scheduledState?.currentSnapshot ?? null;
   const observationMetadata = dataState?.scheduledState ?? dataState?.metadata;
   const currentTop50 = dataState?.newSnapshot ?? [];
@@ -148,6 +151,46 @@ function App() {
     }
   }
 
+  async function createOfficialBaseline() {
+    const actor = baselineForm.actor.trim();
+    const reason = baselineForm.reason.trim();
+    const secret = baselineForm.secret.trim();
+    setBaselineMessage("");
+    setLoadError("");
+    if (!actor || !reason || !secret) {
+      setLoadError("Official Baselineには実行者・理由・管理キーが必要です。");
+      return;
+    }
+    const confirmed = window.confirm(
+      "現在の24h LeaderboardをOfficial Baselineとして保存します。次回以降のDiffはこのBaselineを比較元にします。実行しますか？",
+    );
+    if (!confirmed) return;
+
+    setBaselineRunning(true);
+    try {
+      const response = await fetch("/api/official-baseline", {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${secret}`,
+        },
+        body: JSON.stringify({ actor, reason }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.message || "Official Baselineの作成に失敗しました。");
+      }
+      setBaselineForm((current) => ({ ...current, secret: "" }));
+      setBaselineMessage(`Official Baselineを保存しました: ${payload.baselinePath}`);
+      await refreshState();
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Official Baselineの作成に失敗しました。");
+    } finally {
+      setBaselineRunning(false);
+    }
+  }
+
   function openPosts() {
     if (postUnavailableReason) return;
     setPostsReady(true);
@@ -200,6 +243,14 @@ function App() {
             dataQuality={homeDataQuality}
             comparisonAvailable={canCompare}
             comparisonReason={!hasPreviousSnapshot ? "初回Baselineのため日次比較不可" : null}
+          />
+          <AdminBaselineCard
+            form={baselineForm}
+            running={baselineRunning}
+            message={baselineMessage}
+            officialBaseline={dataState?.scheduledState?.officialBaseline}
+            onChange={setBaselineForm}
+            onSubmit={createOfficialBaseline}
           />
           <InvalidSnapshotCard failedAttempt={dataState?.scheduledState?.lastFailedAttempt} />
           {manualMessage && <div className="success-card">{manualMessage}</div>}
@@ -322,6 +373,53 @@ function OfficialSnapshotCard({ snapshot, dataQuality, comparisonAvailable, comp
         <span>Comparison</span>
         {comparisonAvailable ? "Available（比較可能）" : `Unavailable（比較不可）${comparisonReason ? ` - ${comparisonReason}` : ""}`}
       </p>
+    </section>
+  );
+}
+
+function AdminBaselineCard({ form, running, message, officialBaseline, onChange, onSubmit }) {
+  return (
+    <section className="snapshot-meta admin-baseline-card">
+      <h3>Create Official Baseline</h3>
+      <p>
+        <span>用途</span>
+        仕様変更・取得失敗時に、現在の24h Leaderboardを次回Diffの比較元として保存します。
+      </p>
+      {officialBaseline?.path && <p><span>Active Baseline</span>{officialBaseline.path}</p>}
+      {officialBaseline?.createdAt && <p><span>Created</span>{formatJst(officialBaseline.createdAt)}</p>}
+      {officialBaseline?.createdBy && <p><span>Actor</span>{officialBaseline.createdBy}</p>}
+      <label className="admin-field">
+        <span>実行者</span>
+        <input
+          value={form.actor}
+          onChange={(event) => onChange((current) => ({ ...current, actor: event.target.value }))}
+          placeholder="nato-san"
+          autoComplete="username"
+        />
+      </label>
+      <label className="admin-field">
+        <span>理由</span>
+        <textarea
+          value={form.reason}
+          onChange={(event) => onChange((current) => ({ ...current, reason: event.target.value }))}
+          placeholder="例: timeframeを24hへ切り替えたため"
+          rows={2}
+        />
+      </label>
+      <label className="admin-field">
+        <span>管理キー</span>
+        <input
+          type="password"
+          value={form.secret}
+          onChange={(event) => onChange((current) => ({ ...current, secret: event.target.value }))}
+          placeholder="Admin secret"
+          autoComplete="current-password"
+        />
+      </label>
+      <button className="secondary-button" onClick={onSubmit} disabled={running}>
+        {running ? "Official Baselineを作成中..." : "Create Official Baseline"}
+      </button>
+      {message && <p className="inline-success">{message}</p>}
     </section>
   );
 }

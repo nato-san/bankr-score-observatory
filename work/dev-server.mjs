@@ -4,6 +4,7 @@ import http from "node:http";
 import { createServer as createViteServer } from "vite";
 import {
   createScheduledSnapshot,
+  createOfficialBaseline,
   buildIntradayPreview,
   hasSuccessfulResearchSnapshot,
   readResearchState,
@@ -14,6 +15,7 @@ const args = process.argv.slice(2);
 const host = readArg("--host", "0.0.0.0");
 const port = Number(readArg("--port", "5175"));
 const SCHEDULE_SECRET = process.env.CRON_SECRET || process.env.BANKR_SCHEDULE_SECRET;
+const ADMIN_SECRET = process.env.BANKR_ADMIN_SECRET || process.env.ADMIN_SECRET || SCHEDULE_SECRET;
 const TIMEZONE = "Asia/Tokyo";
 const retryTimers = new Map();
 
@@ -160,11 +162,31 @@ function runObservation() {
 function requestSecret(request) {
   const auth = request.headers.authorization ?? "";
   if (auth.startsWith("Bearer ")) return auth.slice("Bearer ".length).trim();
-  return request.headers["x-bankr-scheduler-secret"];
+  return request.headers["x-bankr-admin-secret"] ?? request.headers["x-bankr-scheduler-secret"];
 }
 
 function isAuthorized(request) {
   return Boolean(SCHEDULE_SECRET) && requestSecret(request) === SCHEDULE_SECRET;
+}
+
+function isAdminAuthorized(request) {
+  return Boolean(ADMIN_SECRET) && requestSecret(request) === ADMIN_SECRET;
+}
+
+function readRequestBody(request) {
+  return new Promise((resolve) => {
+    let body = "";
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch {
+        resolve({});
+      }
+    });
+  });
 }
 
 function jstDateKey(date = new Date()) {
@@ -307,6 +329,62 @@ const server = http.createServer(async (request, response) => {
         retryScheduled: retryCount < 2,
         retryCount,
         detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+
+  if (request.url?.startsWith("/api/official-baseline") && request.method === "POST") {
+    if (!ADMIN_SECRET) {
+      sendJson(response, 503, {
+        ok: false,
+        message: "管理者用シークレットが設定されていません。",
+      });
+      return;
+    }
+    if (!isAdminAuthorized(request)) {
+      sendJson(response, 401, {
+        ok: false,
+        message: "管理者認証が必要です。",
+      });
+      return;
+    }
+
+    const body = await readRequestBody(request);
+    const reason = String(body.reason ?? "").trim();
+    const actor = String(body.actor ?? "").trim();
+    if (!reason || !actor) {
+      sendJson(response, 400, {
+        ok: false,
+        message: "実行理由と実行者を入力してください。",
+      });
+      return;
+    }
+
+    try {
+      const result = await createOfficialBaseline({
+        date: body.date ?? jstDateKey(),
+        reason,
+        actor,
+      });
+      sendJson(response, 201, {
+        ok: true,
+        baselinePath: result.baselinePath,
+        state: await readState(),
+        snapshot: {
+          capturedAt: result.snapshot.capturedAt,
+          leaderboardSource: result.snapshot.leaderboardSource,
+          validation: result.snapshot.validation,
+          profileCaptureStatus: result.snapshot.profiles?.captureStatus ?? null,
+          officialBaseline: result.snapshot.officialBaseline,
+        },
+      });
+    } catch (error) {
+      sendJson(response, 500, {
+        ok: false,
+        message: "Official Baselineの作成に失敗しました。",
+        detail: error instanceof Error ? error.message : String(error),
+        validation: error?.validation ?? null,
       });
     }
     return;

@@ -5,6 +5,7 @@ const GITHUB_API = "https://api.github.com";
 
 export const DATA_PATHS = {
   snapshotsDir: "data/research-snapshots",
+  officialBaselinesDir: "data/official-baselines",
   diffsDir: "data/diffs",
   state: "data/state.json",
 };
@@ -32,6 +33,9 @@ class LocalStorage {
   mapPath(repoPath) {
     if (repoPath.startsWith(DATA_PATHS.snapshotsDir)) {
       return repoPath.replace(DATA_PATHS.snapshotsDir, "outputs/research-snapshots");
+    }
+    if (repoPath.startsWith(DATA_PATHS.officialBaselinesDir)) {
+      return repoPath.replace(DATA_PATHS.officialBaselinesDir, "outputs/official-baselines");
     }
     if (repoPath.startsWith(DATA_PATHS.diffsDir)) {
       return repoPath.replace(DATA_PATHS.diffsDir, "outputs/research-diffs");

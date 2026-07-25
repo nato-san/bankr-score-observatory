@@ -176,6 +176,47 @@ h3 {
   background: #17213b;
 }
 
+.admin-baseline-card {
+  gap: 10px;
+}
+
+.admin-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.admin-field span {
+  color: #9ca3af;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.admin-field input,
+.admin-field textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid rgba(155, 177, 255, 0.18);
+  border-radius: 8px;
+  background: #0d1629;
+  color: #e5edff;
+  font: inherit;
+  line-height: 1.35;
+  padding: 10px 11px;
+}
+
+.admin-field textarea {
+  resize: vertical;
+}
+
+.inline-success {
+  color: #86efac;
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
 .app-version {
   padding: 20px 0 10px;
   display: grid;
