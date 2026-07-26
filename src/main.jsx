@@ -793,9 +793,10 @@ function ChangesScreen({
               <span>Case Detection</span>
               <strong>{caseResearch?.status === "complete" ? "Complete" : "Limited"}</strong>
               <span>{comparableUsers} comparable users</span>
+              <span>Overall Top 50内の比較</span>
             </div>
             <div className="category-tabs" role="tablist" aria-label="Category selector">
-              {CASE_CATEGORY_DEFINITIONS.filter((category) => category.key !== "social").map((category) => (
+              {CASE_CATEGORY_DEFINITIONS.map((category) => (
                 <button
                   type="button"
                   key={category.key}
