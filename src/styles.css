@@ -477,6 +477,37 @@ h3 {
   border-color: rgba(155, 177, 255, 0.38);
 }
 
+.category-status {
+  display: grid;
+  gap: 3px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 10px;
+  min-width: 0;
+}
+
+.category-status strong {
+  color: #e0e7ff;
+  font-size: 0.86rem;
+}
+
+.category-status span {
+  color: #94a3b8;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.category-status.changes strong {
+  color: #9af0c8;
+}
+
+.category-status.no-change strong {
+  color: #f3d38b;
+}
+
+.category-status.unavailable strong {
+  color: #cbd5e1;
+}
+
 .ranking-block {
   display: grid;
   gap: 8px;

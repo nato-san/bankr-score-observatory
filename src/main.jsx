@@ -591,6 +591,89 @@ function scheduleDelayMinutes(scheduledFor, capturedAt) {
   return Math.round(diff / 60000);
 }
 
+function isUsableCategoryRanking(ranking) {
+  return Boolean(
+    ranking
+      && Array.isArray(ranking.rawIncreases)
+      && Array.isArray(ranking.rawDecreases)
+  );
+}
+
+function deriveCategoryComparisonSummary(caseResearch, categoryKey, ranking) {
+  const cases = Array.isArray(caseResearch?.cases) ? caseResearch.cases : [];
+  const summary = {
+    completeCount: 0,
+    unavailableCount: 0,
+    partialCount: 0,
+    currentOnlyCount: 0,
+    comparableCount: 0,
+    nonZeroChangeCount: isUsableCategoryRanking(ranking)
+      ? (ranking.rawIncreases.length + ranking.rawDecreases.length)
+      : 0,
+  };
+
+  for (const item of cases) {
+    const comparisonStatus = item.categoryDiffs?.[categoryKey]?.comparisonStatus;
+    if (item.dataCompleteness === "current-only") {
+      summary.currentOnlyCount += 1;
+    }
+    if (item.dataCompleteness === "partial") {
+      summary.partialCount += 1;
+    }
+    if (comparisonStatus === "complete") {
+      summary.completeCount += 1;
+    } else if (comparisonStatus === "unavailable") {
+      summary.unavailableCount += 1;
+    }
+  }
+
+  summary.comparableCount = summary.completeCount;
+  return summary;
+}
+
+function categoryChangeStatus({ ranking, categorySummary, canCompare, categoryBaseline, caseResearch }) {
+  if (categoryBaseline) {
+    return {
+      status: "unavailable",
+      label: "Unavailable",
+      detail: "Baselineのため、次回Snapshotからカテゴリ比較できます。",
+      summary: categorySummary,
+    };
+  }
+  if (!canCompare) {
+    return {
+      status: "unavailable",
+      label: "Unavailable",
+      detail: "比較対象となる前回Snapshotがありません。",
+      summary: categorySummary,
+    };
+  }
+  if (!caseResearch || caseResearch.status === "unavailable" || !isUsableCategoryRanking(ranking) || categorySummary.comparableCount <= 0) {
+    return {
+      status: "unavailable",
+      label: "Unavailable",
+      detail: "比較可能な詳細プロフィールがそろっていません。",
+      summary: categorySummary,
+    };
+  }
+
+  if (categorySummary.nonZeroChangeCount > 0) {
+    return {
+      status: "changes",
+      label: "Changes observed",
+      detail: "比較可能な詳細プロフィール内で非ゼロraw value changeがあります。",
+      summary: categorySummary,
+    };
+  }
+
+  return {
+    status: "no-change",
+    label: "No change observed",
+    detail: "比較可能ですが、非ゼロraw value changeはありません。",
+    summary: categorySummary,
+  };
+}
+
 function ChangesScreen({
   observation,
   summary,
@@ -621,6 +704,14 @@ function ChangesScreen({
   const partialUnavailableUsers = (caseResearch?.summary?.partialUsers ?? 0) + (caseResearch?.summary?.unavailableUsers ?? 0);
   const categoryBaseline = caseResearch?.status === "baseline";
   const hasCaseSummary = Boolean(caseResearch?.summary);
+  const selectedCategorySummary = deriveCategoryComparisonSummary(caseResearch, selectedCategory, selectedRanking);
+  const selectedCategoryStatus = categoryChangeStatus({
+    ranking: selectedRanking,
+    categorySummary: selectedCategorySummary,
+    canCompare,
+    categoryBaseline,
+    caseResearch,
+  });
   const dataQuality = deriveDataQuality({
     currentSnapshot,
     previousSnapshot,
@@ -807,6 +898,7 @@ function ChangesScreen({
                 </button>
               ))}
             </div>
+            <CategoryStatus status={selectedCategoryStatus} />
             <CategoryRanking title="Largest raw increases" rows={selectedRanking?.rawIncreases?.slice(0, 3) ?? []} />
             <CategoryRanking title="Largest raw decreases" rows={selectedRanking?.rawDecreases?.slice(0, 3) ?? []} />
           </>
@@ -835,6 +927,20 @@ function ChangesScreen({
       </button>
       {postUnavailableReason && <div className="warning-card">{postUnavailableReason}</div>}
     </section>
+  );
+}
+
+function CategoryStatus({ status }) {
+  return (
+    <div className={`category-status ${status.status}`}>
+      <strong>{status.label}</strong>
+      <span>{status.detail}</span>
+      {status.summary && (
+        <span>
+          Comparable: {status.summary.comparableCount} / Non-zero changes: {status.summary.nonZeroChangeCount}
+        </span>
+      )}
+    </div>
   );
 }
 
