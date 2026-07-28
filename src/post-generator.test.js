@@ -4,6 +4,7 @@ import twitterText from "twitter-text";
 import { generatePosts } from "./post-generator.js";
 
 const X_SAFE_LIMIT = 270;
+const POST_ONE_WEIGHTED_LIMIT = 220;
 
 function rankMover(username, change, rankBefore = 30, rankAfter = rankBefore - change, overallBefore = 0.1, overallAfter = 0.11) {
   return {
@@ -52,9 +53,10 @@ function observation({
   exitedUsers = [],
   caseResearchStatus = "limited",
   currentTop50 = [],
+  observationNumber = 9,
 } = {}) {
   return {
-    observationNumber: 9,
+    observationNumber,
     previousSnapshotAt: "2026-07-27T00:51:00.000Z",
     currentSnapshotAt: "2026-07-28T00:51:00.000Z",
     currentTop50,
@@ -91,7 +93,7 @@ function weightedLength(text) {
   return twitterText.parseTweet(text).weightedLength;
 }
 
-test("Post 1 is centered on Top 50 rank movers, not growth rate", () => {
+test("Post 1 uses the readable rank movers report format, not growth rate", () => {
   const posts = postsFor({
     rankMovers: [
       rankMover("@leader", 22, 32, 10, 0.1835, 0.112),
@@ -99,10 +101,12 @@ test("Post 1 is centered on Top 50 rank movers, not growth rate", () => {
     ],
   });
 
-  assert.match(posts[0].text, /\$BNKR Daily Observatory/);
-  assert.match(posts[0].text, /Top 50 rank movers/);
-  assert.match(posts[0].text, /leader 32→10 ▲22/);
-  assert.match(posts[0].text, /Overall 0\.1835→0\.1120/);
+  assert.match(posts[0].text, /📊 Bankr Score Observatory #9/);
+  assert.match(posts[0].text, /\$BNKR Daily Observation/);
+  assert.match(posts[0].text, /🗓/);
+  assert.match(posts[0].text, /🚀 Biggest Rank Climbers \(Top 2\)/);
+  assert.match(posts[0].text, /🥇 #1 leader\n32 → 10 \(\+22\)/);
+  assert.match(posts[0].text, /🥈 #2 second\n20 → 12 \(\+8\)/);
   assert.doesNotMatch(posts[0].text, /Overall Growth Top 3|\+.*%/);
 });
 
@@ -206,11 +210,12 @@ test("thread numbering is included before final safe-length validation", () => {
   assert.ok(posts.length > 1);
   assert.match(posts[0].text, new RegExp(`^1/${posts.length}\\n`));
   assert.match(posts.at(-1).text, new RegExp(`^${posts.length}/${posts.length}\\n`));
-  assert.ok(posts.every((post) => post.length <= X_SAFE_LIMIT));
+  assert.ok(posts[0].length <= POST_ONE_WEIGHTED_LIMIT);
+  assert.ok(posts.slice(1).every((post) => post.length <= X_SAFE_LIMIT));
   assert.ok(posts.every((post) => twitterText.parseTweet(post.text).valid));
 });
 
-test("rank movers fit Top 3 into the first post when possible", () => {
+test("rank movers fit Top 3 into Post 1 when possible", () => {
   const posts = postsFor({
     rankMovers: [
       rankMover("@one", 10),
@@ -219,10 +224,69 @@ test("rank movers fit Top 3 into the first post when possible", () => {
     ],
   });
 
-  assert.match(posts[0].text, /1\. one 30→20 ▲10/);
-  assert.match(posts[0].text, /2\. two 30→21 ▲9/);
-  assert.match(posts[0].text, /3\. three 30→22 ▲8/);
+  assert.match(posts[0].text, /🚀 Biggest Rank Climbers \(Top 3\)/);
+  assert.match(posts[0].text, /🥇 #1 one\n30 → 20 \(\+10\)/);
+  assert.match(posts[0].text, /🥈 #2 two\n30 → 21 \(\+9\)/);
+  assert.match(posts[0].text, /🥉 #3 three\n30 → 22 \(\+8\)/);
   assert.doesNotMatch(posts[0].text, /continued/);
+  assert.ok(posts[0].length <= POST_ONE_WEIGHTED_LIMIT);
+});
+
+test("Post 1 Top N label matches two and one available movers", () => {
+  const topTwo = postsFor({
+    rankMovers: [rankMover("@one", 10), rankMover("@two", 9)],
+  });
+  assert.match(topTwo[0].text, /Biggest Rank Climbers \(Top 2\)/);
+  assert.match(topTwo[0].text, /#1 one/);
+  assert.match(topTwo[0].text, /#2 two/);
+  assert.doesNotMatch(topTwo[0].text, /#3/);
+
+  const topOne = postsFor({
+    rankMovers: [rankMover("@one", 10)],
+  });
+  assert.match(topOne[0].text, /Biggest Rank Climbers \(Top 1\)/);
+  assert.match(topOne[0].text, /#1 one/);
+  assert.doesNotMatch(topOne[0].text, /#2/);
+});
+
+test("Post 1 keeps blank-line structure for scanability", () => {
+  const [post] = postsFor({
+    rankMovers: [rankMover("@one", 10), rankMover("@two", 9), rankMover("@three", 8)],
+  });
+
+  assert.match(post.text, /Bankr Score Observatory #9\n\n\$BNKR Daily Observation/);
+  assert.match(post.text, /Daily Observation\n\n🗓/);
+  assert.match(post.text, /JST\n\n🚀 Biggest Rank Climbers/);
+  assert.match(post.text, /Top 3\)\n\n🥇/);
+});
+
+test("long usernames can reduce Post 1 to Top 2 and send third mover to the continuation post", () => {
+  const long = "XXXXXXXXXXXX";
+  const posts = postsFor({
+    rankMovers: [
+      rankMover(`@${long}A`, 10),
+      rankMover(`@${long}B`, 9),
+      rankMover(`@${long}C`, 8),
+    ],
+  });
+
+  assert.match(posts[0].text, /Biggest Rank Climbers \(Top 2\)/);
+  assert.match(posts[0].text, new RegExp(`#1 ${long}A`));
+  assert.match(posts[0].text, new RegExp(`#2 ${long}B`));
+  assert.doesNotMatch(posts[0].text, new RegExp(`${long}C`));
+  assert.match(posts[1].text, new RegExp(`${long}C`));
+  assert.match(posts[0].jaSummary, /TOP50順位上昇Top2/);
+  assert.doesNotMatch(posts[0].jaSummary, new RegExp(`${long}C`));
+});
+
+test("Observation number is omitted when it is not safely available", () => {
+  const posts = postsFor({
+    observationNumber: null,
+    rankMovers: [rankMover("@one", 10)],
+  });
+
+  assert.match(posts[0].text, /📊 Bankr Score Observatory\n/);
+  assert.doesNotMatch(posts[0].text, /Observatory #/);
 });
 
 test("generated thread is variable length rather than fixed at five posts", () => {
@@ -323,7 +387,8 @@ test("English posts and Japanese summaries use matching candidates", () => {
     },
   });
 
-  assert.match(posts[0].text, /leader 10→5/);
+  assert.match(posts[0].text, /#1 leader\n10 → 5 \(\+5\)/);
+  assert.match(posts[0].jaSummary, /TOP50順位上昇Top1/);
   assert.match(posts[0].jaSummary, /leader: rank 10→5/);
   assert.match(posts[1].text, /socialLead \+1\.2346/);
   assert.match(posts[1].jaSummary, /socialLead: \+1\.2346/);
@@ -355,7 +420,8 @@ test("research caution is kept only on the final post and every post fits the X 
   assert.match(posts.at(-1).text, /They do not explain rank movement by themselves/);
   assert.match(posts.at(-1).text, /Public leaderboard observation\. Not an official explanation\./);
   for (const post of posts) {
-    assert.ok(post.length <= X_SAFE_LIMIT);
+    const limit = post.index === 1 ? POST_ONE_WEIGHTED_LIMIT : X_SAFE_LIMIT;
+    assert.ok(post.length <= limit);
     assert.ok(twitterText.parseTweet(post.text).valid);
   }
 });
@@ -394,7 +460,8 @@ test("all generated posts are valid under X weighted length and stay under the s
   });
 
   for (const post of posts) {
-    assert.ok(post.length <= X_SAFE_LIMIT);
+    const limit = post.index === 1 ? POST_ONE_WEIGHTED_LIMIT : X_SAFE_LIMIT;
+    assert.ok(post.length <= limit);
     assert.equal(post.length, weightedLength(post.text));
     assert.equal(twitterText.parseTweet(post.text).valid, true);
   }

@@ -2,7 +2,9 @@ import twitterText from "twitter-text";
 import { formatOverallDiff, formatOverallScore, formatUsername } from "./display-formatters.js";
 
 const X_HARD_LIMIT = 280;
-const X_SAFE_LIMIT = 270;
+// Post 1 keeps roughly 50-60 weighted chars free for possible X auto-inserted CA text.
+const POST_ONE_WEIGHTED_LIMIT = 220;
+const OTHER_POST_WEIGHTED_LIMIT = 270;
 const MAX_POSTS = 5;
 const CATEGORY_LIMIT = 2;
 const FOOTER_LINE = "Overall Top 50 comparison.";
@@ -153,16 +155,13 @@ function uniqueRowsByUsername(rows) {
 
 function rankMovementPosts(observation, categories) {
   const rows = rankMoverRows(observation, categories);
-  const prefix = compactLines([
-    "📊 $BNKR Daily Observatory",
-    intervalLine(observation),
-    "Top 50 rank movers",
-  ]);
 
   if (!rows.length) {
     return [{
       text: compactLines([
-        ...prefix,
+        "📊 Bankr Score Observatory",
+        "$BNKR Daily Observation",
+        intervalLine(observation),
         "No Top 50 rank rises found.",
       ]).join("\n"),
       jaSummary: "・TOP50内の順位上昇はありません",
@@ -170,8 +169,14 @@ function rankMovementPosts(observation, categories) {
   }
 
   const posts = [];
-  let remaining = rows;
-  let currentPrefix = prefix;
+  const primary = fitPrimaryRankPost(observation, rows);
+  posts.push({
+    text: primary.text,
+    jaSummary: rankMoverJa(primary.kept),
+  });
+
+  let remaining = primary.rest;
+  let currentPrefix = ["Top 50 rank movers continued"];
   while (remaining.length && posts.length < 2) {
     const { kept, rest, detailLevel } = fitRankRows(currentPrefix, remaining);
     posts.push({
@@ -184,12 +189,75 @@ function rankMovementPosts(observation, categories) {
   return posts;
 }
 
+function fitPrimaryRankPost(observation, rows) {
+  const limit = POST_ONE_WEIGHTED_LIMIT - tweetLength("1/5\n");
+  const countFloor = rows.length >= 2 ? 2 : 1;
+  const noteModes = ["full", "short", "none"];
+  const periodLabels = ["🗓 Observation Period", "🗓 Period"];
+  const rowLayouts = ["block", "inline"];
+
+  for (let count = Math.min(3, rows.length); count >= countFloor; count -= 1) {
+    for (const noteMode of noteModes) {
+      for (const periodLabel of periodLabels) {
+        for (const rowLayout of rowLayouts) {
+          const text = primaryRankPostText(observation, rows.slice(0, count), { noteMode, periodLabel, rowLayout });
+          if (tweetLength(text) <= limit) {
+            return { kept: rows.slice(0, count), rest: rows.slice(count, 3), text };
+          }
+        }
+      }
+    }
+  }
+
+  const text = primaryRankPostText(observation, rows.slice(0, 1), {
+    noteMode: "none",
+    periodLabel: "🗓 Period",
+    rowLayout: "inline",
+  });
+  return { kept: rows.slice(0, 1), rest: rows.slice(1, 3), text };
+}
+
+function primaryRankPostText(observation, rows, { noteMode, periodLabel, rowLayout }) {
+  const notes = noteMode === "full"
+    ? ["Overall Top 50 comparison.", "", "Public leaderboard observation.", "Daily research thread."]
+    : noteMode === "short"
+      ? ["Public leaderboard data."]
+      : [];
+  return postLines([
+    observationTitle(observation),
+    "",
+    "$BNKR Daily Observation",
+    "",
+    periodLabel,
+    intervalLine(observation),
+    "",
+    `🚀 Biggest Rank Climbers (Top ${rows.length})`,
+    "",
+    ...rows.flatMap((row, index) => primaryRankRowLines(row, index, rowLayout)),
+    ...notes.length ? ["", ...notes] : [],
+  ]);
+}
+
+function observationTitle(observation) {
+  const number = Number(observation?.observationNumber);
+  return Number.isInteger(number) && number > 0
+    ? `📊 Bankr Score Observatory #${number}`
+    : "📊 Bankr Score Observatory";
+}
+
+function primaryRankRowLines(row, index, rowLayout) {
+  const medal = ["🥇", "🥈", "🥉"][index] ?? `${index + 1}.`;
+  const title = `${medal} #${index + 1} ${row.username}`;
+  const movement = `${row.rankBefore} → ${row.rankAfter} (+${row.rankDiff})`;
+  return rowLayout === "inline" ? [`${title} ${movement}`, ""] : [title, movement, ""];
+}
+
 function fitRankRows(prefix, rows) {
   const detailLevels = ["full", "no-cats", "rank-only"];
   for (const detailLevel of detailLevels) {
     for (let count = Math.min(3, rows.length); count >= 1; count -= 1) {
       const text = compactLines([...prefix, ...rows.slice(0, count).map((row, index) => rankMoverLine(row, index, detailLevel))]).join("\n");
-      if (tweetLength(text) <= X_SAFE_LIMIT) {
+      if (tweetLength(text) <= OTHER_POST_WEIGHTED_LIMIT) {
         return { kept: rows.slice(0, count), rest: rows.slice(count, 3), detailLevel };
       }
     }
@@ -250,7 +318,7 @@ function rankMoverLine(row, index, detailLevel = "full") {
 
 function rankMoverJa(rows) {
   return compactLines([
-    "・TOP50順位上昇Top3",
+    `・TOP50順位上昇Top${rows.length}`,
     ...rows.map((row, index) => `・${index + 1}位 ${row.username}: rank ${rankTransition(row)} / Overall ${formatOverallScore(row.overallBefore)}→${formatOverallScore(row.overallAfter)}`),
   ]).join("\n");
 }
@@ -286,7 +354,7 @@ function fitCategoryRows(prefix, category) {
         keptDecreases.length ? "Notable decrease:" : null,
         ...keptDecreases.map((row, index) => categoryRowLine(row, index)),
       ]);
-      if (tweetLength(lines.join("\n")) <= X_SAFE_LIMIT) return { keptIncreases, keptDecreases };
+      if (tweetLength(lines.join("\n")) <= OTHER_POST_WEIGHTED_LIMIT) return { keptIncreases, keptDecreases };
     }
   }
 
@@ -335,7 +403,7 @@ function membershipPost(observation) {
   ]);
 
   return {
-    text: fitLines(baseLines, X_SAFE_LIMIT),
+    text: fitLines(baseLines, OTHER_POST_WEIGHTED_LIMIT),
     jaSummary: compactLines([
       entered.length ? `・Top 50新規参加 ${entered.length}件: ${entered.slice(0, 3).map((user) => formatUsername(user.username)).filter(Boolean).join(", ")}` : null,
       exited.length ? `・Top 50退出 ${exited.length}件: ${exited.slice(0, 3).map((user) => formatUsername(user.username)).filter(Boolean).join(", ")}` : null,
@@ -348,7 +416,7 @@ function addFinalResearchNote(posts) {
   const result = posts.map((post) => ({ ...post }));
   const lastIndex = result.length - 1;
   if (result[lastIndex].suppressResearchNote) return result;
-  const noted = addNoteToPost(result[lastIndex]);
+  const noted = addNoteToPost(result[lastIndex], result.length === 1 ? POST_ONE_WEIGHTED_LIMIT : OTHER_POST_WEIGHTED_LIMIT);
   if (noted) {
     result[lastIndex] = noted;
   } else if (result.length < MAX_POSTS) {
@@ -362,10 +430,10 @@ function addFinalResearchNote(posts) {
   return result;
 }
 
-function addNoteToPost(post) {
+function addNoteToPost(post, limit) {
   const notes = [FOOTER_LINE, ...RESEARCH_NOTE_LINES];
   const text = compactLines([post.text, ...notes]).join("\n");
-  if (tweetLength(text) > X_SAFE_LIMIT) return null;
+  if (tweetLength(text) > limit) return null;
   return {
     ...post,
     text,
@@ -377,7 +445,7 @@ function addCompressedNoteToPost(post) {
   const notes = [FOOTER_LINE, ...RESEARCH_NOTE_LINES];
   return {
     ...post,
-    text: fitLines([...post.text.split("\n"), ...notes], X_SAFE_LIMIT, notes),
+    text: fitLines([...post.text.split("\n"), ...notes], OTHER_POST_WEIGHTED_LIMIT, notes),
     jaSummary: compactLines([post.jaSummary, "・raw値変化は順位変動の原因を断定しない", "・公開Leaderboard観測に基づく"]).join("\n"),
   };
 }
@@ -403,19 +471,23 @@ function baselineWaitingPosts(observation) {
 
 function withThreadNumbers(posts) {
   const compacted = posts.map((post) => ({ ...post, text: post.text.trim() })).filter((post) => post.text);
-  if (compacted.length <= 1) return compacted.map((post) => ensureSafeLimit(post));
-  return compacted.map((post, index) => ensureSafeLimit({
-    ...post,
-    text: `${index + 1}/${compacted.length}\n${post.text}`,
-  }));
+  if (compacted.length <= 1) return compacted.map((post, index) => ensureSafeLimit(post, index));
+  return compacted.map((post, index) => {
+    const numberedPost = {
+      ...post,
+      text: `${index + 1}/${compacted.length}\n${post.text}`,
+    };
+    return ensureSafeLimit(numberedPost, index);
+  });
 }
 
-function ensureSafeLimit(post) {
+function ensureSafeLimit(post, index = 0) {
   const parsed = twitterText.parseTweet(post.text);
-  if (parsed.weightedLength <= X_SAFE_LIMIT && parsed.valid && parsed.weightedLength <= X_HARD_LIMIT) return post;
+  const limit = index === 0 ? POST_ONE_WEIGHTED_LIMIT : OTHER_POST_WEIGHTED_LIMIT;
+  if (parsed.weightedLength <= limit && parsed.valid && parsed.weightedLength <= X_HARD_LIMIT) return post;
   return {
     ...post,
-    text: fitLines(post.text.split("\n"), X_SAFE_LIMIT),
+    text: fitLines(post.text.split("\n"), limit),
   };
 }
 
@@ -476,6 +548,10 @@ function rankSortValue(value) {
 
 function compactLines(lines) {
   return lines.filter(Boolean);
+}
+
+function postLines(lines) {
+  return lines.filter((line) => line != null).join("\n").trim();
 }
 
 function tweetLength(text) {
