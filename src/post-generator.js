@@ -25,8 +25,8 @@ const CATEGORY_DEFINITIONS = [
 
 export function generatePosts(observation) {
   const draftPosts = buildRankCenteredPosts(observation);
-  const noted = addResearchNote(draftPosts);
-  const numbered = withThreadNumbers(noted.slice(0, MAX_POSTS));
+  const noted = addFinalResearchNote(draftPosts.slice(0, MAX_POSTS));
+  const numbered = withThreadNumbers(noted);
   return {
     items: numbered.map((post, index) => ({
       index: index + 1,
@@ -162,7 +162,6 @@ function rankMovementPosts(observation, categories) {
       text: compactLines([
         ...prefix,
         "No Top 50 rank rises found.",
-        FOOTER_LINE,
       ]).join("\n"),
       jaSummary: "・TOP50内の順位上昇はありません",
     }];
@@ -172,9 +171,9 @@ function rankMovementPosts(observation, categories) {
   let remaining = rows;
   let currentPrefix = prefix;
   while (remaining.length && posts.length < 2) {
-    const { kept, rest } = fitRankRows(currentPrefix, remaining);
+    const { kept, rest, detailLevel } = fitRankRows(currentPrefix, remaining);
     posts.push({
-      text: compactLines([...currentPrefix, ...kept.map(rankMoverLine), FOOTER_LINE]).join("\n"),
+      text: compactLines([...currentPrefix, ...kept.map((row, index) => rankMoverLine(row, index, detailLevel))]).join("\n"),
       jaSummary: rankMoverJa(kept),
     });
     remaining = rest;
@@ -184,13 +183,16 @@ function rankMovementPosts(observation, categories) {
 }
 
 function fitRankRows(prefix, rows) {
-  for (let count = Math.min(3, rows.length); count >= 1; count -= 1) {
-    const text = compactLines([...prefix, ...rows.slice(0, count).map(rankMoverLine), FOOTER_LINE]).join("\n");
-    if (tweetLength(text) <= HARD_LIMIT) {
-      return { kept: rows.slice(0, count), rest: rows.slice(count, 3) };
+  const detailLevels = ["full", "no-cats", "rank-only"];
+  for (const detailLevel of detailLevels) {
+    for (let count = Math.min(3, rows.length); count >= 1; count -= 1) {
+      const text = compactLines([...prefix, ...rows.slice(0, count).map((row, index) => rankMoverLine(row, index, detailLevel))]).join("\n");
+      if (tweetLength(text) <= HARD_LIMIT) {
+        return { kept: rows.slice(0, count), rest: rows.slice(count, 3), detailLevel };
+      }
     }
   }
-  return { kept: rows.slice(0, 1), rest: rows.slice(1, 3) };
+  return { kept: rows.slice(0, 1), rest: rows.slice(1, 3), detailLevel: "rank-only" };
 }
 
 function rankMoverRows(observation, categories) {
@@ -234,11 +236,14 @@ function categoryChangesByUser(categories) {
   return byUser;
 }
 
-function rankMoverLine(row, index) {
+function rankMoverLine(row, index, detailLevel = "full") {
   const categoryText = row.categoryChanges.length
     ? ` | cats: ${row.categoryChanges.map((item) => `${item.label} ${formattedRawDiff(item.rawDiff)}`).join(", ")}`
     : "";
-  return `${index + 1}. ${row.username} ${rankTransition(row)} ▲${row.rankDiff}\nOverall ${formatOverallScore(row.overallBefore)}→${formatOverallScore(row.overallAfter)} (${formatOverallDiff(row.overallDiff)})${categoryText}`;
+  const rankLine = `${index + 1}. ${row.username} ${rankTransition(row)} ▲${row.rankDiff}`;
+  if (detailLevel === "rank-only") return rankLine;
+  const overallLine = `Overall ${formatOverallScore(row.overallBefore)}→${formatOverallScore(row.overallAfter)} (${formatOverallDiff(row.overallDiff)})`;
+  return detailLevel === "no-cats" ? `${rankLine}\n${overallLine}` : `${rankLine}\n${overallLine}${categoryText}`;
 }
 
 function rankMoverJa(rows) {
@@ -257,7 +262,6 @@ function categoryPost(category) {
     ...keptIncreases.map((row, index) => categoryRowLine(row, index)),
     keptDecreases.length ? "Notable decrease:" : null,
     ...keptDecreases.map((row, index) => categoryRowLine(row, index)),
-    FOOTER_LINE,
   ]);
   return {
     text: lines.join("\n"),
@@ -279,7 +283,6 @@ function fitCategoryRows(prefix, category) {
         ...keptIncreases.map((row, index) => categoryRowLine(row, index)),
         keptDecreases.length ? "Notable decrease:" : null,
         ...keptDecreases.map((row, index) => categoryRowLine(row, index)),
-        FOOTER_LINE,
       ]);
       if (tweetLength(lines.join("\n")) <= HARD_LIMIT) return { keptIncreases, keptDecreases };
     }
@@ -327,7 +330,6 @@ function membershipPost(observation) {
     ...entered.slice(0, 3).map((user) => formatUsername(user.username)).filter(Boolean),
     exited.length ? `Exited: ${exited.length}` : null,
     ...exited.slice(0, 3).map((user) => formatUsername(user.username)).filter(Boolean),
-    FOOTER_LINE,
   ]);
 
   return {
@@ -339,21 +341,43 @@ function membershipPost(observation) {
   };
 }
 
-function addResearchNote(posts) {
+function addFinalResearchNote(posts) {
   if (!posts.length) return posts;
   const result = posts.map((post) => ({ ...post }));
-  for (let index = result.length - 1; index >= 0; index -= 1) {
-    const candidateText = compactLines([result[index].text, ...RESEARCH_NOTE_LINES]).join("\n");
-    if (tweetLength(candidateText) <= HARD_LIMIT) {
-      result[index] = {
-        ...result[index],
-        text: candidateText,
-        jaSummary: compactLines([result[index].jaSummary, "・raw値変化は順位変動の原因を断定しない", "・公開Leaderboard観測に基づく"]).join("\n"),
-      };
-      return result;
-    }
+  const lastIndex = result.length - 1;
+  if (result[lastIndex].suppressResearchNote) return result;
+  const noted = addNoteToPost(result[lastIndex]);
+  if (noted) {
+    result[lastIndex] = noted;
+  } else if (result.length < MAX_POSTS) {
+    result.push({
+      text: [FOOTER_LINE, ...RESEARCH_NOTE_LINES].join("\n"),
+      jaSummary: "・Overall Top 50内の比較\n・raw値変化は順位変動の原因を断定しない\n・公開Leaderboard観測に基づく",
+    });
+  } else {
+    result[lastIndex] = addCompressedNoteToPost(result[lastIndex]);
   }
   return result;
+}
+
+function addNoteToPost(post) {
+  const notes = [FOOTER_LINE, ...RESEARCH_NOTE_LINES];
+  const text = compactLines([post.text, ...notes]).join("\n");
+  if (tweetLength(text) > HARD_LIMIT) return null;
+  return {
+    ...post,
+    text,
+    jaSummary: compactLines([post.jaSummary, "・raw値変化は順位変動の原因を断定しない", "・公開Leaderboard観測に基づく"]).join("\n"),
+  };
+}
+
+function addCompressedNoteToPost(post) {
+  const notes = [FOOTER_LINE, ...RESEARCH_NOTE_LINES];
+  return {
+    ...post,
+    text: fitLines([...post.text.split("\n"), ...notes], HARD_LIMIT, notes),
+    jaSummary: compactLines([post.jaSummary, "・raw値変化は順位変動の原因を断定しない", "・公開Leaderboard観測に基づく"]).join("\n"),
+  };
 }
 
 function baselineWaitingPosts(observation) {
@@ -364,13 +388,13 @@ function baselineWaitingPosts(observation) {
         "Official comparison is waiting for a previous detailed Snapshot.",
         "Current Snapshot is not treated as failed.",
         "Daily comparison can begin from the next valid Snapshot.",
-        FOOTER_LINE,
       ]).join("\n"),
       jaSummary: compactLines([
         "・正式な比較元Snapshot待ち",
         "・現在Snapshot自体の失敗ではない",
         "・次回以降に日次比較可能",
       ]).join("\n"),
+      suppressResearchNote: true,
     },
   ];
 }
@@ -392,8 +416,9 @@ function ensureHardLimit(post) {
   };
 }
 
-function fitLines(lines, limit) {
-  const required = lines.includes(FOOTER_LINE) ? [FOOTER_LINE] : [];
+function fitLines(lines, limit, requiredLines = null) {
+  const fullNote = [FOOTER_LINE, ...RESEARCH_NOTE_LINES];
+  const required = requiredLines ?? (fullNote.every((line) => lines.includes(line)) ? fullNote : (lines.includes(FOOTER_LINE) ? [FOOTER_LINE] : []));
   const kept = [];
   for (const line of lines) {
     if (required.includes(line)) continue;

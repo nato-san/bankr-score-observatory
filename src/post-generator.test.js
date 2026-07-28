@@ -166,6 +166,30 @@ test("category posting uses at most two categories and total posts stay within f
   assert.ok(posts.length <= 5);
 });
 
+test("rank movers fit Top 3 into the first post when possible", () => {
+  const posts = postsFor({
+    rankMovers: [
+      rankMover("@one", 10),
+      rankMover("@two", 9),
+      rankMover("@three", 8),
+    ],
+  });
+
+  assert.match(posts[0].text, /1\. one 30→20 ▲10/);
+  assert.match(posts[0].text, /2\. two 30→21 ▲9/);
+  assert.match(posts[0].text, /3\. three 30→22 ▲8/);
+  assert.doesNotMatch(posts[0].text, /continued/);
+});
+
+test("generated thread is variable length rather than fixed at five posts", () => {
+  const posts = postsFor({
+    rankMovers: [rankMover("@leader", 5)],
+  });
+
+  assert.ok(posts.length < 5);
+  assert.ok(posts.every((post) => post.text.split("\n").filter(Boolean).length > 1));
+});
+
 test("duplicate users are removed between category posts and later categories are promoted", () => {
   const text = textFor({
     categoryRankings: {
@@ -271,7 +295,7 @@ test("Social with no changes is not posted", () => {
   assert.doesNotMatch(text, /Social raw change watch/);
 });
 
-test("research caution remains in the thread and every post fits 280 characters", () => {
+test("research caution is kept only on the final post and every post fits 280 characters", () => {
   const posts = postsFor({
     rankMovers: [rankMover("@leader", 5)],
     categoryRankings: {
@@ -281,9 +305,32 @@ test("research caution remains in the thread and every post fits 280 characters"
   const text = posts.map((post) => post.text).join("\n");
 
   assert.match(text, /They do not explain rank movement by themselves/);
+  assert.doesNotMatch(posts[0].text, /Overall Top 50 comparison/);
+  assert.match(posts.at(-1).text, /Overall Top 50 comparison/);
+  assert.match(posts.at(-1).text, /These are observed raw-value changes/);
+  assert.match(posts.at(-1).text, /They do not explain rank movement by themselves/);
+  assert.match(posts.at(-1).text, /Public leaderboard observation\. Not an official explanation\./);
   for (const post of posts) {
     assert.ok(post.length <= 280);
   }
+});
+
+test("category compression drops notable decreases before raw increases", () => {
+  const longName = "veryLongCategoryIncreaseUserNameThatMakesThePostNeedCompression";
+  const posts = postsFor({
+    categoryRankings: {
+      social: categoryRanking(
+        [categoryRow(`@${longName}One`, 1), categoryRow(`@${longName}Two`, 0.9), categoryRow(`@${longName}Three`, 0.8)],
+        [categoryRow(`@${longName}Decrease`, -4, 7, 12)],
+      ),
+    },
+  });
+  const categoryPost = posts.find((post) => post.text.includes("Social raw change watch"));
+
+  assert.ok(categoryPost);
+  assert.match(categoryPost.text, /Raw increase Top3/);
+  assert.doesNotMatch(categoryPost.text, /Notable decrease/);
+  assert.ok(categoryPost.length <= 280);
 });
 
 test("input objects are not mutated", () => {
