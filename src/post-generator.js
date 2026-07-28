@@ -1,7 +1,8 @@
 import twitterText from "twitter-text";
 import { formatOverallDiff, formatOverallScore, formatUsername } from "./display-formatters.js";
 
-const HARD_LIMIT = 280;
+const X_HARD_LIMIT = 280;
+const X_SAFE_LIMIT = 270;
 const MAX_POSTS = 5;
 const CATEGORY_LIMIT = 2;
 const FOOTER_LINE = "Overall Top 50 comparison.";
@@ -33,6 +34,7 @@ export function generatePosts(observation) {
       text: post.text,
       jaSummary: post.jaSummary,
       length: tweetLength(post.text),
+      valid: twitterText.parseTweet(post.text).valid,
     })),
     omissions: numbered.flatMap((post) => post.omissions ?? []),
   };
@@ -187,7 +189,7 @@ function fitRankRows(prefix, rows) {
   for (const detailLevel of detailLevels) {
     for (let count = Math.min(3, rows.length); count >= 1; count -= 1) {
       const text = compactLines([...prefix, ...rows.slice(0, count).map((row, index) => rankMoverLine(row, index, detailLevel))]).join("\n");
-      if (tweetLength(text) <= HARD_LIMIT) {
+      if (tweetLength(text) <= X_SAFE_LIMIT) {
         return { kept: rows.slice(0, count), rest: rows.slice(count, 3), detailLevel };
       }
     }
@@ -284,7 +286,7 @@ function fitCategoryRows(prefix, category) {
         keptDecreases.length ? "Notable decrease:" : null,
         ...keptDecreases.map((row, index) => categoryRowLine(row, index)),
       ]);
-      if (tweetLength(lines.join("\n")) <= HARD_LIMIT) return { keptIncreases, keptDecreases };
+      if (tweetLength(lines.join("\n")) <= X_SAFE_LIMIT) return { keptIncreases, keptDecreases };
     }
   }
 
@@ -333,7 +335,7 @@ function membershipPost(observation) {
   ]);
 
   return {
-    text: fitLines(baseLines, HARD_LIMIT),
+    text: fitLines(baseLines, X_SAFE_LIMIT),
     jaSummary: compactLines([
       entered.length ? `・Top 50新規参加 ${entered.length}件: ${entered.slice(0, 3).map((user) => formatUsername(user.username)).filter(Boolean).join(", ")}` : null,
       exited.length ? `・Top 50退出 ${exited.length}件: ${exited.slice(0, 3).map((user) => formatUsername(user.username)).filter(Boolean).join(", ")}` : null,
@@ -363,7 +365,7 @@ function addFinalResearchNote(posts) {
 function addNoteToPost(post) {
   const notes = [FOOTER_LINE, ...RESEARCH_NOTE_LINES];
   const text = compactLines([post.text, ...notes]).join("\n");
-  if (tweetLength(text) > HARD_LIMIT) return null;
+  if (tweetLength(text) > X_SAFE_LIMIT) return null;
   return {
     ...post,
     text,
@@ -375,7 +377,7 @@ function addCompressedNoteToPost(post) {
   const notes = [FOOTER_LINE, ...RESEARCH_NOTE_LINES];
   return {
     ...post,
-    text: fitLines([...post.text.split("\n"), ...notes], HARD_LIMIT, notes),
+    text: fitLines([...post.text.split("\n"), ...notes], X_SAFE_LIMIT, notes),
     jaSummary: compactLines([post.jaSummary, "・raw値変化は順位変動の原因を断定しない", "・公開Leaderboard観測に基づく"]).join("\n"),
   };
 }
@@ -401,18 +403,19 @@ function baselineWaitingPosts(observation) {
 
 function withThreadNumbers(posts) {
   const compacted = posts.map((post) => ({ ...post, text: post.text.trim() })).filter((post) => post.text);
-  if (compacted.length <= 1) return compacted.map((post) => ensureHardLimit(post));
-  return compacted.map((post, index) => ensureHardLimit({
+  if (compacted.length <= 1) return compacted.map((post) => ensureSafeLimit(post));
+  return compacted.map((post, index) => ensureSafeLimit({
     ...post,
     text: `${index + 1}/${compacted.length}\n${post.text}`,
   }));
 }
 
-function ensureHardLimit(post) {
-  if (tweetLength(post.text) <= HARD_LIMIT) return post;
+function ensureSafeLimit(post) {
+  const parsed = twitterText.parseTweet(post.text);
+  if (parsed.weightedLength <= X_SAFE_LIMIT && parsed.valid && parsed.weightedLength <= X_HARD_LIMIT) return post;
   return {
     ...post,
-    text: fitLines(post.text.split("\n"), HARD_LIMIT),
+    text: fitLines(post.text.split("\n"), X_SAFE_LIMIT),
   };
 }
 

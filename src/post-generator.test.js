@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import twitterText from "twitter-text";
 import { generatePosts } from "./post-generator.js";
+
+const X_SAFE_LIMIT = 270;
 
 function rankMover(username, change, rankBefore = 30, rankAfter = rankBefore - change, overallBefore = 0.1, overallAfter = 0.11) {
   return {
@@ -84,6 +87,10 @@ function mentionCount(text) {
   return (text.match(/(^|\s)@[A-Za-z0-9_]/g) ?? []).length;
 }
 
+function weightedLength(text) {
+  return twitterText.parseTweet(text).weightedLength;
+}
+
 test("Post 1 is centered on Top 50 rank movers, not growth rate", () => {
   const posts = postsFor({
     rankMovers: [
@@ -97,6 +104,22 @@ test("Post 1 is centered on Top 50 rank movers, not growth rate", () => {
   assert.match(posts[0].text, /leader 32→10 ▲22/);
   assert.match(posts[0].text, /Overall 0\.1835→0\.1120/);
   assert.doesNotMatch(posts[0].text, /Overall Growth Top 3|\+.*%/);
+});
+
+test("twitter-text weighted length handles ASCII, Japanese, emoji, URL, and newlines", () => {
+  assert.equal(weightedLength("a".repeat(280)), 280);
+  assert.ok(weightedLength("日本語".repeat(70)) > "日本語".repeat(70).length);
+  assert.equal(weightedLength("😀".repeat(140)), 280);
+  assert.equal(weightedLength(`https://example.com/${"a".repeat(80)}`), 23);
+  assert.equal(weightedLength("line1\nline2"), 11);
+});
+
+test("plain length can fit 280 while X weighted length exceeds the safe limit", () => {
+  const text = "日本語".repeat(46);
+
+  assert.ok(text.length <= 280);
+  assert.ok(Array.from(text).length <= 280);
+  assert.ok(weightedLength(text) > X_SAFE_LIMIT);
 });
 
 test("all generated posts remove automatic @ mentions", () => {
@@ -164,6 +187,27 @@ test("category posting uses at most two categories and total posts stay within f
 
   assert.equal(categoryHeaders(text).length, 2);
   assert.ok(posts.length <= 5);
+});
+
+test("thread numbering is included before final safe-length validation", () => {
+  const posts = postsFor({
+    rankMovers: [
+      rankMover("@one", 10),
+      rankMover("@two", 9),
+      rankMover("@three", 8),
+    ],
+    categoryRankings: {
+      social: categoryRanking(rows("social", 3, 1)),
+      llmUsage: categoryRanking(rows("llm", 3, 0.8)),
+    },
+    newUsers: [{ username: "@newUser" }],
+  });
+
+  assert.ok(posts.length > 1);
+  assert.match(posts[0].text, new RegExp(`^1/${posts.length}\\n`));
+  assert.match(posts.at(-1).text, new RegExp(`^${posts.length}/${posts.length}\\n`));
+  assert.ok(posts.every((post) => post.length <= X_SAFE_LIMIT));
+  assert.ok(posts.every((post) => twitterText.parseTweet(post.text).valid));
 });
 
 test("rank movers fit Top 3 into the first post when possible", () => {
@@ -295,7 +339,7 @@ test("Social with no changes is not posted", () => {
   assert.doesNotMatch(text, /Social raw change watch/);
 });
 
-test("research caution is kept only on the final post and every post fits 280 characters", () => {
+test("research caution is kept only on the final post and every post fits the X safe limit", () => {
   const posts = postsFor({
     rankMovers: [rankMover("@leader", 5)],
     categoryRankings: {
@@ -311,7 +355,8 @@ test("research caution is kept only on the final post and every post fits 280 ch
   assert.match(posts.at(-1).text, /They do not explain rank movement by themselves/);
   assert.match(posts.at(-1).text, /Public leaderboard observation\. Not an official explanation\./);
   for (const post of posts) {
-    assert.ok(post.length <= 280);
+    assert.ok(post.length <= X_SAFE_LIMIT);
+    assert.ok(twitterText.parseTweet(post.text).valid);
   }
 });
 
@@ -330,7 +375,29 @@ test("category compression drops notable decreases before raw increases", () => 
   assert.ok(categoryPost);
   assert.match(categoryPost.text, /Raw increase Top3/);
   assert.doesNotMatch(categoryPost.text, /Notable decrease/);
-  assert.ok(categoryPost.length <= 280);
+  assert.ok(categoryPost.length <= X_SAFE_LIMIT);
+});
+
+test("all generated posts are valid under X weighted length and stay under the safe limit", () => {
+  const posts = postsFor({
+    rankMovers: [
+      rankMover("@one", 10),
+      rankMover("@two", 9),
+      rankMover("@three", 8),
+    ],
+    categoryRankings: {
+      social: categoryRanking(rows("social", 4, 1)),
+      llmUsage: categoryRanking(rows("llm", 4, 0.8)),
+    },
+    newUsers: [{ username: "@newUser" }],
+    exitedUsers: [{ username: "@oldUser" }],
+  });
+
+  for (const post of posts) {
+    assert.ok(post.length <= X_SAFE_LIMIT);
+    assert.equal(post.length, weightedLength(post.text));
+    assert.equal(twitterText.parseTweet(post.text).valid, true);
+  }
 });
 
 test("input objects are not mutated", () => {
