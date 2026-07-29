@@ -82,7 +82,8 @@ function textFor(input) {
 }
 
 function categoryHeaders(text) {
-  return [...text.matchAll(/^(.+?) raw change watch$/gm)].map((match) => match[1]);
+  return [...text.matchAll(/^Category Highlights\n(.+?)$/gm)]
+    .map((match) => match[1].replace(/^[^\p{L}$]+ /u, ""));
 }
 
 function mentionCount(text) {
@@ -93,7 +94,7 @@ function weightedLength(text) {
   return twitterText.parseTweet(text).weightedLength;
 }
 
-test("Post 1 uses the readable rank movers report format, not growth rate", () => {
+test("Post 1 is an overview and Post 2 uses the rank movers report", () => {
   const posts = postsFor({
     rankMovers: [
       rankMover("@leader", 22, 32, 10, 0.1835, 0.112),
@@ -103,11 +104,16 @@ test("Post 1 uses the readable rank movers report format, not growth rate", () =
 
   assert.match(posts[0].text, /📊 Bankr Score Observatory #9/);
   assert.match(posts[0].text, /\$BNKR Daily Observation/);
-  assert.match(posts[0].text, /🗓/);
-  assert.match(posts[0].text, /🚀 Biggest Rank Climbers \(Top 2\)/);
-  assert.match(posts[0].text, /🥇 #1 leader\n32 → 10 \(\+22\)/);
-  assert.match(posts[0].text, /🥈 #2 second\n20 → 12 \(\+8\)/);
-  assert.doesNotMatch(posts[0].text, /Overall Growth Top 3|\+.*%/);
+  assert.match(posts[0].text, /🗓 Observation Period/);
+  assert.match(posts[0].text, /Comparable users: \?\/\?/);
+  assert.match(posts[0].text, /Rank movers: 2/);
+  assert.match(posts[0].text, /Entered Top 50: 0/);
+  assert.match(posts[0].text, /Exited Top 50: 0/);
+  assert.doesNotMatch(posts[0].text, /🥇|Biggest Rank Climbs/);
+  assert.match(posts[1].text, /🏆 Biggest Rank Climbs \(Top 50\)/);
+  assert.match(posts[1].text, /🥇 #1 leader\n32 → 10 \(\+22\)/);
+  assert.match(posts[1].text, /🥈 #2 second\n20 → 12 \(\+8\)/);
+  assert.doesNotMatch(posts[1].text, /Overall Growth Top 3|\+.*%/);
 });
 
 test("twitter-text weighted length handles ASCII, Japanese, emoji, URL, and newlines", () => {
@@ -173,7 +179,7 @@ test("category ties use max abs raw diff, then category definition order", () =>
   assert.deepEqual(categoryHeaders(orderText), ["Builder", "LLM Gateway"]);
 });
 
-test("category posting uses at most two categories and total posts stay within five", () => {
+test("category posting uses at most two categories and keeps the final note separate", () => {
   const posts = postsFor({
     rankMovers: [
       rankMover("@one", 10),
@@ -190,7 +196,7 @@ test("category posting uses at most two categories and total posts stay within f
   const text = posts.map((post) => post.text).join("\n");
 
   assert.equal(categoryHeaders(text).length, 2);
-  assert.ok(posts.length <= 5);
+  assert.match(posts.at(-1).text, /This observation system is still experimental/);
 });
 
 test("thread numbering is included before final safe-length validation", () => {
@@ -224,52 +230,51 @@ test("rank movers fit Top 3 into Post 1 when possible", () => {
     ],
   });
 
-  assert.match(posts[0].text, /🚀 Biggest Rank Climbers \(Top 3\)/);
-  assert.match(posts[0].text, /🥇 #1 one\n30 → 20 \(\+10\)/);
-  assert.match(posts[0].text, /🥈 #2 two\n30 → 21 \(\+9\)/);
-  assert.match(posts[0].text, /🥉 #3 three\n30 → 22 \(\+8\)/);
-  assert.doesNotMatch(posts[0].text, /continued/);
+  assert.match(posts[1].text, /🏆 Biggest Rank Climbs \(Top 50\)/);
+  assert.match(posts[1].text, /🥇 #1 one\n30 → 20 \(\+10\)/);
+  assert.match(posts[1].text, /🥈 #2 two\n30 → 21 \(\+9\)/);
+  assert.match(posts[1].text, /🥉 #3 three\n30 → 22 \(\+8\)/);
+  assert.doesNotMatch(posts[1].text, /continued/);
   assert.ok(posts[0].length <= POST_ONE_WEIGHTED_LIMIT);
 });
 
-test("Post 1 Top N label matches two and one available movers", () => {
+test("rank mover Top N label matches two and one available movers", () => {
   const topTwo = postsFor({
     rankMovers: [rankMover("@one", 10), rankMover("@two", 9)],
   });
-  assert.match(topTwo[0].text, /Biggest Rank Climbers \(Top 2\)/);
-  assert.match(topTwo[0].text, /#1 one/);
-  assert.match(topTwo[0].text, /#2 two/);
-  assert.doesNotMatch(topTwo[0].text, /#3/);
+  assert.match(topTwo[1].text, /Biggest Rank Climbs \(Top 50\)/);
+  assert.match(topTwo[1].text, /#1 one/);
+  assert.match(topTwo[1].text, /#2 two/);
+  assert.doesNotMatch(topTwo[1].text, /#3/);
 
   const topOne = postsFor({
     rankMovers: [rankMover("@one", 10)],
   });
-  assert.match(topOne[0].text, /Biggest Rank Climbers \(Top 1\)/);
-  assert.match(topOne[0].text, /#1 one/);
-  assert.doesNotMatch(topOne[0].text, /#2/);
+  assert.match(topOne[1].text, /Biggest Rank Climbs \(Top 50\)/);
+  assert.match(topOne[1].text, /#1 one/);
+  assert.doesNotMatch(topOne[1].text, /#2/);
 });
 
-test("Post 1 keeps blank-line structure for scanability", () => {
+test("Post 1 keeps overview blank-line structure for scanability", () => {
   const [post] = postsFor({
     rankMovers: [rankMover("@one", 10), rankMover("@two", 9), rankMover("@three", 8)],
   });
 
   assert.match(post.text, /Bankr Score Observatory #9\n\n\$BNKR Daily Observation/);
   assert.match(post.text, /Daily Observation\n\n🗓/);
-  assert.match(post.text, /JST\n\n🚀 Biggest Rank Climbers/);
-  assert.match(post.text, /Top 3\)\n\n🥇/);
+  assert.match(post.text, /JST\n\nComparable users:/);
+  assert.match(post.text, /Rank movers: 3/);
 });
 
-test("Post 1 uses only the specified caution wording when it fits", () => {
+test("final post uses only the specified caution wording", () => {
   const posts = postsFor({
     rankMovers: [rankMover("@one", 10)],
   });
 
-  assert.doesNotMatch(posts[0].text, /Public leaderboard data\./);
-  if (posts[0].text.includes("Public leaderboard observation.")) {
-    assert.match(posts[0].text, /Overall Top 50 comparison\./);
-    assert.match(posts[0].text, /Daily research thread\./);
-  }
+  assert.doesNotMatch(posts.map((post) => post.text).join("\n"), /Public leaderboard data\./);
+  assert.match(posts.at(-1).text, /These observations are based on the public leaderboard\./);
+  assert.match(posts.at(-1).text, /Raw-value changes do not necessarily explain rank movement by themselves\./);
+  assert.match(posts.at(-1).text, /This observation system is still experimental and may contain errors\./);
 });
 
 test("long usernames can reduce Post 1 to Top 2 and send third mover to the continuation post", () => {
@@ -282,13 +287,11 @@ test("long usernames can reduce Post 1 to Top 2 and send third mover to the cont
     ],
   });
 
-  assert.match(posts[0].text, /Biggest Rank Climbers \(Top 2\)/);
-  assert.match(posts[0].text, new RegExp(`#1 ${long}A`));
-  assert.match(posts[0].text, new RegExp(`#2 ${long}B`));
-  assert.doesNotMatch(posts[0].text, new RegExp(`${long}C`));
-  assert.match(posts[1].text, new RegExp(`${long}C`));
-  assert.match(posts[0].jaSummary, /TOP50順位上昇Top2/);
-  assert.doesNotMatch(posts[0].jaSummary, new RegExp(`${long}C`));
+  assert.match(posts[1].text, /Biggest Rank Climbs \(Top 50\)/);
+  assert.match(posts[1].text, new RegExp(`#1 ${long}A`));
+  assert.match(posts[1].text, new RegExp(`#2 ${long}B`));
+  assert.match(posts[1].text, new RegExp(`#3 ${long}C`));
+  assert.match(posts[1].jaSummary, /TOP50順位上昇Top3/);
 });
 
 test("Observation number is omitted when it is not safely available", () => {
@@ -330,7 +333,7 @@ test("0 to positive raw values are retained as rawDiff increases", () => {
     },
   });
 
-  assert.match(text, /activated \+5\.0000/);
+  assert.match(text, /activated\n\+5\.0000/);
 });
 
 test("rawDiff 0, NaN, and Infinity are excluded", () => {
@@ -349,7 +352,7 @@ test("rawDiff 0, NaN, and Infinity are excluded", () => {
   assert.doesNotMatch(text, /zero|nan|infinity/);
 });
 
-test("category posts can include notable decreases without creating a decrease ranking post", () => {
+test("category posts show positive highlights and omit notable decreases", () => {
   const text = textFor({
     categoryRankings: {
       social: categoryRanking(
@@ -359,9 +362,10 @@ test("category posts can include notable decreases without creating a decrease r
     },
   });
 
-  assert.match(text, /Raw increase Top3/);
-  assert.match(text, /Notable decrease/);
-  assert.match(text, /down -3\.0000/);
+  assert.match(text, /Category Highlights/);
+  assert.match(text, /up\n\+1\.0000/);
+  assert.doesNotMatch(text, /Notable decrease/);
+  assert.doesNotMatch(text, /down\n-3\.0000/);
 });
 
 test("Top 50 entries and exits are retained as a separate post", () => {
@@ -399,11 +403,11 @@ test("English posts and Japanese summaries use matching candidates", () => {
     },
   });
 
-  assert.match(posts[0].text, /#1 leader\n10 → 5 \(\+5\)/);
-  assert.match(posts[0].jaSummary, /TOP50順位上昇Top1/);
-  assert.match(posts[0].jaSummary, /leader: rank 10→5/);
-  assert.match(posts[1].text, /socialLead \+1\.2346/);
-  assert.match(posts[1].jaSummary, /socialLead: \+1\.2346/);
+  assert.match(posts[1].text, /#1 leader\n10 → 5 \(\+5\)/);
+  assert.match(posts[1].jaSummary, /TOP50順位上昇Top1/);
+  assert.match(posts[1].jaSummary, /leader: rank 10→5/);
+  assert.match(posts[2].text, /socialLead\n\+1\.2346/);
+  assert.match(posts[2].jaSummary, /socialLead: \+1\.2346/);
 });
 
 test("Social with no changes is not posted", () => {
@@ -425,12 +429,11 @@ test("research caution is kept only on the final post and every post fits the X 
   });
   const text = posts.map((post) => post.text).join("\n");
 
-  assert.match(text, /They do not explain rank movement by themselves/);
+  assert.match(text, /Raw-value changes do not necessarily explain rank movement by themselves/);
   assert.doesNotMatch(posts[0].text, /Overall Top 50 comparison/);
-  assert.match(posts.at(-1).text, /Overall Top 50 comparison/);
-  assert.match(posts.at(-1).text, /These are observed raw-value changes/);
-  assert.match(posts.at(-1).text, /They do not explain rank movement by themselves/);
-  assert.match(posts.at(-1).text, /Public leaderboard observation\. Not an official explanation\./);
+  assert.match(posts.at(-1).text, /These observations are based on the public leaderboard/);
+  assert.match(posts.at(-1).text, /Raw-value changes do not necessarily explain rank movement by themselves/);
+  assert.match(posts.at(-1).text, /This observation system is still experimental and may contain errors\./);
   for (const post of posts) {
     const limit = post.index === 1 ? POST_ONE_WEIGHTED_LIMIT : X_SAFE_LIMIT;
     assert.ok(post.length <= limit);
@@ -438,7 +441,7 @@ test("research caution is kept only on the final post and every post fits the X 
   }
 });
 
-test("category compression drops notable decreases before raw increases", () => {
+test("category compression keeps raw increases and omits decreases", () => {
   const longName = "veryLongCategoryIncreaseUserNameThatMakesThePostNeedCompression";
   const posts = postsFor({
     categoryRankings: {
@@ -448,10 +451,10 @@ test("category compression drops notable decreases before raw increases", () => 
       ),
     },
   });
-  const categoryPost = posts.find((post) => post.text.includes("Social raw change watch"));
+  const categoryPost = posts.find((post) => post.text.includes("👥 Social"));
 
   assert.ok(categoryPost);
-  assert.match(categoryPost.text, /Raw increase Top3/);
+  assert.match(categoryPost.text, /Category Highlights/);
   assert.doesNotMatch(categoryPost.text, /Notable decrease/);
   assert.ok(categoryPost.length <= X_SAFE_LIMIT);
 });

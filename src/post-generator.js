@@ -9,9 +9,11 @@ const MAX_POSTS = 5;
 const CATEGORY_LIMIT = 2;
 const FOOTER_LINE = "Overall Top 50 comparison.";
 const RESEARCH_NOTE_LINES = [
-  "These are observed raw-value changes.",
-  "They do not explain rank movement by themselves.",
-  "Public leaderboard observation. Not an official explanation.",
+  "These observations are based on the public leaderboard.",
+  "",
+  "Raw-value changes do not necessarily explain rank movement by themselves.",
+  "",
+  "This observation system is still experimental and may contain errors.",
 ];
 const CATEGORY_DEFINITIONS = [
   { key: "deployer", label: "Deployer" },
@@ -47,13 +49,43 @@ function buildRankCenteredPosts(observation) {
 
   const posts = [];
   const categoryState = buildCategoryState(observation);
-  posts.push(...rankMovementPosts(observation, categoryState.categories));
+  const rankRows = rankMoverRows(observation, categoryState.categories);
+  posts.push(overviewPost(observation, rankRows));
+  posts.push(...rankMovementPosts(rankRows));
   posts.push(...categoryState.categories.map((category) => categoryPost(category)));
 
   const membership = membershipPost(observation);
   if (membership) posts.push(membership);
 
   return posts.filter(Boolean);
+}
+
+function overviewPost(observation, rankRows) {
+  const membership = membershipCounts(observation);
+  return {
+    text: postLines([
+      observationTitle(observation),
+      "",
+      "$BNKR Daily Observation",
+      "",
+      "🗓 Observation Period",
+      intervalLine(observation),
+      "",
+      `Comparable users: ${comparableUsersText(observation)}`,
+      "",
+      `Rank movers: ${rankRows.length}`,
+      "",
+      `Entered Top 50: ${membership.entered}`,
+      "",
+      `Exited Top 50: ${membership.exited}`,
+    ]),
+    jaSummary: compactLines([
+      `・比較可能ユーザー ${comparableUsersText(observation)}`,
+      `・順位上昇 ${rankRows.length}件`,
+      `・Top 50新規参加 ${membership.entered}件`,
+      `・Top 50退出 ${membership.exited}件`,
+    ]).join("\n"),
+  };
 }
 
 function isComparableObservation(observation) {
@@ -153,15 +185,11 @@ function uniqueRowsByUsername(rows) {
   return unique;
 }
 
-function rankMovementPosts(observation, categories) {
-  const rows = rankMoverRows(observation, categories);
-
+function rankMovementPosts(rows) {
   if (!rows.length) {
     return [{
       text: compactLines([
-        "📊 Bankr Score Observatory",
-        "$BNKR Daily Observation",
-        intervalLine(observation),
+        "🏆 Biggest Rank Climbs (Top 50)",
         "No Top 50 rank rises found.",
       ]).join("\n"),
       jaSummary: "・TOP50内の順位上昇はありません",
@@ -169,7 +197,7 @@ function rankMovementPosts(observation, categories) {
   }
 
   const posts = [];
-  const primary = fitPrimaryRankPost(observation, rows);
+  const primary = fitPrimaryRankPost(rows);
   posts.push({
     text: primary.text,
     jaSummary: rankMoverJa(primary.kept),
@@ -189,10 +217,10 @@ function rankMovementPosts(observation, categories) {
   return posts;
 }
 
-function fitPrimaryRankPost(observation, rows) {
-  const limit = POST_ONE_WEIGHTED_LIMIT - tweetLength("1/5\n");
+function fitPrimaryRankPost(rows) {
+  const limit = OTHER_POST_WEIGHTED_LIMIT - tweetLength("1/5\n");
   const countFloor = rows.length >= 2 ? 2 : 1;
-  const noteModes = ["full", "none"];
+  const noteModes = ["none"];
   const periodLabels = ["🗓 Observation Period", "🗓 Period"];
   const rowLayouts = ["block", "inline"];
 
@@ -200,7 +228,7 @@ function fitPrimaryRankPost(observation, rows) {
     for (const noteMode of noteModes) {
       for (const periodLabel of periodLabels) {
         for (const rowLayout of rowLayouts) {
-          const text = primaryRankPostText(observation, rows.slice(0, count), { noteMode, periodLabel, rowLayout });
+          const text = primaryRankPostText(rows.slice(0, count), { noteMode, periodLabel, rowLayout });
           if (tweetLength(text) <= limit) {
             return { kept: rows.slice(0, count), rest: rows.slice(count, 3), text };
           }
@@ -209,7 +237,7 @@ function fitPrimaryRankPost(observation, rows) {
     }
   }
 
-  const text = primaryRankPostText(observation, rows.slice(0, 1), {
+  const text = primaryRankPostText(rows.slice(0, 1), {
     noteMode: "none",
     periodLabel: "🗓 Period",
     rowLayout: "inline",
@@ -217,19 +245,12 @@ function fitPrimaryRankPost(observation, rows) {
   return { kept: rows.slice(0, 1), rest: rows.slice(1, 3), text };
 }
 
-function primaryRankPostText(observation, rows, { noteMode, periodLabel, rowLayout }) {
+function primaryRankPostText(rows, { noteMode, periodLabel, rowLayout }) {
   const notes = noteMode === "full"
     ? ["Overall Top 50 comparison.", "", "Public leaderboard observation.", "Daily research thread."]
     : [];
   return postLines([
-    observationTitle(observation),
-    "",
-    "$BNKR Daily Observation",
-    "",
-    periodLabel,
-    intervalLine(observation),
-    "",
-    `🚀 Biggest Rank Climbers (Top ${rows.length})`,
+    "🏆 Biggest Rank Climbs (Top 50)",
     "",
     ...rows.flatMap((row, index) => primaryRankRowLines(row, index, rowLayout)),
     ...notes.length ? ["", ...notes] : [],
@@ -322,14 +343,12 @@ function rankMoverJa(rows) {
 }
 
 function categoryPost(category) {
-  const prefix = [`${category.label} raw change watch`];
+  if (!category.increases.length) return null;
+  const prefix = ["Category Highlights", "", categoryTitle(category)];
   const { keptIncreases, keptDecreases } = fitCategoryRows(prefix, category);
   const lines = compactLines([
     ...prefix,
-    keptIncreases.length ? "Raw increase Top3:" : null,
     ...keptIncreases.map((row, index) => categoryRowLine(row, index)),
-    keptDecreases.length ? "Notable decrease:" : null,
-    ...keptDecreases.map((row, index) => categoryRowLine(row, index)),
   ]);
   return {
     text: lines.join("\n"),
@@ -347,10 +366,7 @@ function fitCategoryRows(prefix, category) {
       const keptDecreases = decreases.slice(0, decreaseCount);
       const lines = compactLines([
         ...prefix,
-        keptIncreases.length ? "Raw increase Top3:" : null,
         ...keptIncreases.map((row, index) => categoryRowLine(row, index)),
-        keptDecreases.length ? "Notable decrease:" : null,
-        ...keptDecreases.map((row, index) => categoryRowLine(row, index)),
       ]);
       if (tweetLength(lines.join("\n")) <= OTHER_POST_WEIGHTED_LIMIT) return { keptIncreases, keptDecreases };
     }
@@ -376,14 +392,15 @@ function notableDecreaseRows(rows) {
 }
 
 function categoryRowLine(row, index) {
-  return `${index + 1}. ${row.username} ${formattedRawDiff(row.rawDiff)} | rank ${rankTransition(row)}`;
+  return index === 0
+    ? `${row.username}\n${formattedRawDiff(row.rawDiff)} | rank ${rankTransition(row)}`
+    : `\n${row.username}\n${formattedRawDiff(row.rawDiff)} | rank ${rankTransition(row)}`;
 }
 
 function categoryJa(category, increases, decreases) {
   return compactLines([
     `・${category.label} raw変化`,
     ...increases.map((row, index) => `・増加${index + 1}位 ${row.username}: ${formattedRawDiff(row.rawDiff)} / rank ${rankTransition(row)}`),
-    ...decreases.map((row, index) => `・減少${index + 1}位 ${row.username}: ${formattedRawDiff(row.rawDiff)} / rank ${rankTransition(row)}`),
   ]).join("\n");
 }
 
@@ -414,22 +431,15 @@ function addFinalResearchNote(posts) {
   const result = posts.map((post) => ({ ...post }));
   const lastIndex = result.length - 1;
   if (result[lastIndex].suppressResearchNote) return result;
-  const noted = addNoteToPost(result[lastIndex], result.length === 1 ? POST_ONE_WEIGHTED_LIMIT : OTHER_POST_WEIGHTED_LIMIT);
-  if (noted) {
-    result[lastIndex] = noted;
-  } else if (result.length < MAX_POSTS) {
-    result.push({
-      text: [FOOTER_LINE, ...RESEARCH_NOTE_LINES].join("\n"),
-      jaSummary: "・Overall Top 50内の比較\n・raw値変化は順位変動の原因を断定しない\n・公開Leaderboard観測に基づく",
-    });
-  } else {
-    result[lastIndex] = addCompressedNoteToPost(result[lastIndex]);
-  }
+  result.push({
+    text: RESEARCH_NOTE_LINES.join("\n"),
+    jaSummary: "・公開Leaderboard観測に基づく\n・raw値変化は順位変動の原因を断定しない\n・実験的な観測システムのため誤差の可能性あり",
+  });
   return result;
 }
 
 function addNoteToPost(post, limit) {
-  const notes = [FOOTER_LINE, ...RESEARCH_NOTE_LINES];
+  const notes = RESEARCH_NOTE_LINES;
   const text = compactLines([post.text, ...notes]).join("\n");
   if (tweetLength(text) > limit) return null;
   return {
@@ -440,7 +450,7 @@ function addNoteToPost(post, limit) {
 }
 
 function addCompressedNoteToPost(post) {
-  const notes = [FOOTER_LINE, ...RESEARCH_NOTE_LINES];
+  const notes = RESEARCH_NOTE_LINES;
   return {
     ...post,
     text: fitLines([...post.text.split("\n"), ...notes], OTHER_POST_WEIGHTED_LIMIT, notes),
@@ -465,6 +475,41 @@ function baselineWaitingPosts(observation) {
       suppressResearchNote: true,
     },
   ];
+}
+
+function membershipCounts(observation) {
+  return {
+    entered: observation?.summary?.newUsers?.length ?? 0,
+    exited: observation?.summary?.exitedUsers?.length ?? 0,
+  };
+}
+
+function comparableUsersText(observation) {
+  const summary = observation?.caseResearch?.summary ?? {};
+  const comparable = finiteNumber(summary.comparableUsers);
+  if (comparable == null) return "?/?";
+  const currentTop50Count = Array.isArray(observation?.currentTop50) ? observation.currentTop50.length : null;
+  const inferredTotal = comparable
+    + (finiteNumber(summary.currentOnlyUsers) ?? 0)
+    + (finiteNumber(summary.unavailableUsers) ?? 0);
+  const total = currentTop50Count && currentTop50Count > 0 ? currentTop50Count : inferredTotal;
+  return `${comparable}/${total || "?"}`;
+}
+
+function categoryTitle(category) {
+  const icon = {
+    llmUsage: "🤖",
+    bnkr: "💰",
+    social: "👥",
+    developer: "🏗",
+    deployer: "🛠",
+    partner: "🌱",
+    nft: "🖼",
+    referral: "🔗",
+    pnl: "📈",
+    og: "⭐",
+  }[category.key];
+  return icon ? `${icon} ${category.label}` : category.label;
 }
 
 function withThreadNumbers(posts) {
@@ -503,8 +548,8 @@ function fitLines(lines, limit, requiredLines = null) {
 }
 
 function intervalLine(observation) {
-  const from = formatMonthDayTime(observation?.previousSnapshotAt);
-  const to = formatMonthDayTime(observation?.currentSnapshotAt);
+  const from = formatMonthDayTime(observation?.previousSnapshotAt ?? observation?.caseResearch?.observationFrom);
+  const to = formatMonthDayTime(observation?.currentSnapshotAt ?? observation?.caseResearch?.observationTo);
   return from && to ? `${from} → ${to} JST` : null;
 }
 
