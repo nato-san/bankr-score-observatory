@@ -260,6 +260,18 @@ test("Post 1 keeps blank-line structure for scanability", () => {
   assert.match(post.text, /Top 3\)\n\n🥇/);
 });
 
+test("Post 1 uses only the specified caution wording when it fits", () => {
+  const posts = postsFor({
+    rankMovers: [rankMover("@one", 10)],
+  });
+
+  assert.doesNotMatch(posts[0].text, /Public leaderboard data\./);
+  if (posts[0].text.includes("Public leaderboard observation.")) {
+    assert.match(posts[0].text, /Overall Top 50 comparison\./);
+    assert.match(posts[0].text, /Daily research thread\./);
+  }
+});
+
 test("long usernames can reduce Post 1 to Top 2 and send third mover to the continuation post", () => {
   const long = "XXXXXXXXXXXX";
   const posts = postsFor({

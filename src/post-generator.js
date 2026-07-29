@@ -192,7 +192,7 @@ function rankMovementPosts(observation, categories) {
 function fitPrimaryRankPost(observation, rows) {
   const limit = POST_ONE_WEIGHTED_LIMIT - tweetLength("1/5\n");
   const countFloor = rows.length >= 2 ? 2 : 1;
-  const noteModes = ["full", "short", "none"];
+  const noteModes = ["full", "none"];
   const periodLabels = ["🗓 Observation Period", "🗓 Period"];
   const rowLayouts = ["block", "inline"];
 
@@ -220,9 +220,7 @@ function fitPrimaryRankPost(observation, rows) {
 function primaryRankPostText(observation, rows, { noteMode, periodLabel, rowLayout }) {
   const notes = noteMode === "full"
     ? ["Overall Top 50 comparison.", "", "Public leaderboard observation.", "Daily research thread."]
-    : noteMode === "short"
-      ? ["Public leaderboard data."]
-      : [];
+    : [];
   return postLines([
     observationTitle(observation),
     "",
