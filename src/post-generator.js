@@ -50,7 +50,7 @@ function buildRankCenteredPosts(observation) {
   const posts = [];
   const categoryState = buildCategoryState(observation);
   const rankRows = rankMoverRows(observation, categoryState.categories);
-  posts.push(overviewPost(observation, rankRows));
+  posts.push(overviewPost(observation));
   posts.push(...rankMovementPosts(rankRows));
   posts.push(...categoryState.categories.map((category) => categoryPost(category)));
 
@@ -60,8 +60,9 @@ function buildRankCenteredPosts(observation) {
   return posts.filter(Boolean);
 }
 
-function overviewPost(observation, rankRows) {
+function overviewPost(observation) {
   const membership = membershipCounts(observation);
+  const rankMoverCount = observation?.summary?.rankMovers?.length ?? 0;
   return {
     text: postLines([
       observationTitle(observation),
@@ -73,7 +74,7 @@ function overviewPost(observation, rankRows) {
       "",
       `Comparable users: ${comparableUsersText(observation)}`,
       "",
-      `Rank movers: ${rankRows.length}`,
+      `Rank movers: ${rankMoverCount}`,
       "",
       `Entered Top 50: ${membership.entered}`,
       "",
@@ -81,7 +82,7 @@ function overviewPost(observation, rankRows) {
     ]),
     jaSummary: compactLines([
       `・比較可能ユーザー ${comparableUsersText(observation)}`,
-      `・順位上昇 ${rankRows.length}件`,
+      `・順位変動 ${rankMoverCount}件`,
       `・Top 50新規参加 ${membership.entered}件`,
       `・Top 50退出 ${membership.exited}件`,
     ]).join("\n"),

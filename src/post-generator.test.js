@@ -18,6 +18,10 @@ function rankMover(username, change, rankBefore = 30, rankAfter = rankBefore - c
   };
 }
 
+function rankDrop(username, change = -2, rankBefore = 10, rankAfter = rankBefore - change) {
+  return rankMover(username, change, rankBefore, rankAfter);
+}
+
 function categoryRow(username, rawDiff, rankBefore = 10, rankAfter = 9, rawBefore = 0, rawAfter = rawBefore + rawDiff) {
   return {
     username,
@@ -114,6 +118,22 @@ test("Post 1 is an overview and Post 2 uses the rank movers report", () => {
   assert.match(posts[1].text, /🥇 #1 leader\n32 → 10 \(\+22\)/);
   assert.match(posts[1].text, /🥈 #2 second\n20 → 12 \(\+8\)/);
   assert.doesNotMatch(posts[1].text, /Overall Growth Top 3|\+.*%/);
+});
+
+test("Post 1 counts all rank movers while Post 2 still uses rank climb rows", () => {
+  const posts = postsFor({
+    rankMovers: [
+      rankMover("@riseOne", 8, 20, 12),
+      rankMover("@riseTwo", 4, 16, 12),
+      rankDrop("@dropOne", -3, 10, 13),
+      rankDrop("@dropTwo", -1, 30, 31),
+    ],
+  });
+
+  assert.match(posts[0].text, /Rank movers: 4/);
+  assert.match(posts[1].text, /🥇 #1 riseOne\n20 → 12 \(\+8\)/);
+  assert.match(posts[1].text, /🥈 #2 riseTwo\n16 → 12 \(\+4\)/);
+  assert.doesNotMatch(posts[1].text, /dropOne|dropTwo/);
 });
 
 test("twitter-text weighted length handles ASCII, Japanese, emoji, URL, and newlines", () => {
